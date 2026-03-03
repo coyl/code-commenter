@@ -143,6 +143,8 @@ export default function Home() {
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pendingSegmentRef = useRef<{ code: string; narration: string } | null>(null);
   const pendingAudioChunksRef = useRef<string[]>([]);
+  const playNextTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPlayingRef = useRef(false);
   const [currentNarration, setCurrentNarration] = useState("");
   const [segments, setSegments] = useState<Segment[]>([]);
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
@@ -163,6 +165,10 @@ export default function Home() {
   }, [css]);
 
   useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => {
     return () => {
       stopAudio();
       if (typingTimerRef.current) clearInterval(typingTimerRef.current);
@@ -175,24 +181,33 @@ export default function Home() {
     if (el) el.scrollTop = el.scrollHeight - el.clientHeight;
   }, [displayedCode]);
 
-  const typeSegment = useCallback((segmentCode: string, speedMs = 15, options?: { updateCode?: boolean }) => {
-    const updateCode = options?.updateCode !== false;
-    streamCodeBufferRef.current += segmentCode;
-    const targetLen = streamCodeBufferRef.current.length;
-    const startLen = displayedLenRef.current;
-    if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-    let len = startLen;
-    typingTimerRef.current = setInterval(() => {
-      len += 1;
-      displayedLenRef.current = len;
-      setDisplayedCode(streamCodeBufferRef.current.slice(0, len));
-      if (updateCode) setCode(streamCodeBufferRef.current);
-      if (len >= targetLen && typingTimerRef.current) {
-        clearInterval(typingTimerRef.current);
-        typingTimerRef.current = null;
-      }
-    }, speedMs);
-  }, []);
+  const typeSegment = useCallback(
+    (
+      segmentCode: string,
+      speedMs = 15,
+      options?: { updateCode?: boolean; onComplete?: () => void }
+    ) => {
+      const updateCode = options?.updateCode !== false;
+      const onComplete = options?.onComplete;
+      streamCodeBufferRef.current += segmentCode;
+      const targetLen = streamCodeBufferRef.current.length;
+      const startLen = displayedLenRef.current;
+      if (typingTimerRef.current) clearInterval(typingTimerRef.current);
+      let len = startLen;
+      typingTimerRef.current = setInterval(() => {
+        len += 1;
+        displayedLenRef.current = len;
+        setDisplayedCode(streamCodeBufferRef.current.slice(0, len));
+        if (updateCode) setCode(streamCodeBufferRef.current);
+        if (len >= targetLen && typingTimerRef.current) {
+          clearInterval(typingTimerRef.current);
+          typingTimerRef.current = null;
+          onComplete?.();
+        }
+      }, speedMs);
+    },
+    []
+  );
 
   // Play one segment with typing paced to 80% of audio length. Used for initial stream (buffer-then-play).
   const playSegmentNow = useCallback(
@@ -217,6 +232,10 @@ export default function Home() {
   const replaySegment = useCallback(
     (i: number) => {
       if (i < 0 || i >= segments.length) return;
+      if (playNextTimeoutRef.current) {
+        clearTimeout(playNextTimeoutRef.current);
+        playNextTimeoutRef.current = null;
+      }
       stopAudio();
       if (typingTimerRef.current) {
         clearInterval(typingTimerRef.current);
@@ -233,7 +252,16 @@ export default function Home() {
       setCurrentSegmentIndex(i);
       setCurrentNarration(segments[i].narration);
       const speedMs = typingSpeedFor80Percent(segments[i].code.length, segments[i].audioChunks);
-      typeSegment(segments[i].code, speedMs, { updateCode: false });
+      const onComplete = () => {
+        const remainingMs = Math.max(200, 0.2 * audioDurationSeconds(segments[i].audioChunks) * 1000);
+        playNextTimeoutRef.current = setTimeout(() => {
+          playNextTimeoutRef.current = null;
+          if (!isPlayingRef.current) return;
+          if (i < segments.length - 1) replaySegment(i + 1);
+          else setIsPlaying(false);
+        }, remainingMs);
+      };
+      typeSegment(segments[i].code, speedMs, { updateCode: false, onComplete });
       segments[i].audioChunks.forEach(playAudioChunk);
     },
     [segments, typeSegment, stopAudio, playAudioChunk]
@@ -253,6 +281,10 @@ export default function Home() {
 
   // Single place to stop any current playback (typing + audio). Keeps playback from stacking.
   const stopCurrentPlayback = useCallback(() => {
+    if (playNextTimeoutRef.current) {
+      clearTimeout(playNextTimeoutRef.current);
+      playNextTimeoutRef.current = null;
+    }
     stopAudio();
     if (typingTimerRef.current) {
       clearInterval(typingTimerRef.current);
@@ -283,6 +315,8 @@ export default function Home() {
     setSegments([]);
     setCurrentSegmentIndex(0);
     setIsPlaying(false);
+    if (playNextTimeoutRef.current) clearTimeout(playNextTimeoutRef.current);
+    playNextTimeoutRef.current = null;
     pendingSegmentRef.current = null;
     pendingAudioChunksRef.current = [];
     streamCodeBufferRef.current = "";
