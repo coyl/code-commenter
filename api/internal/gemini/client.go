@@ -63,14 +63,23 @@ NARRATION:
 	return spec, narrationScript, nil
 }
 
-// GenerateCSS produces a single block of CSS for the code view/theme/layout.
-func (c *Client) GenerateCSS(ctx context.Context, spec string) (css string, err error) {
-	prompt := fmt.Sprintf(`Generate a single block of CSS for a code viewer page. The page shows code in a monospace editor with a nice theme. Context: %s
+// GenerateCSS produces a single block of CSS for the code view/theme/layout and syntax highlighting.
+func (c *Client) GenerateCSS(ctx context.Context, spec, language string) (css string, err error) {
+	prompt := fmt.Sprintf(`Generate a single block of CSS for a code viewer page. The page shows code in a monospace editor with syntax highlighting. Language: %s. Context: %s
 
 Output only valid CSS, no markdown code fences. Include:
-- A container for the code view (e.g. .code-view or #code-view)
-- Syntax-friendly colors (background, text, maybe keyword/string/comment colors)
-- Readable font and padding`, spec)
+- A container for the code view (e.g. #code-view or .code-view): background, border, padding
+- Base code style: font-family monospace, font-size, line height, default text color
+- Syntax highlighting classes for tokens (use these exact class names so the frontend can style them):
+  .token-keyword   { color for keywords: function, const, if, return, etc. }
+  .token-string    { color for string literals }
+  .token-comment   { color for line and block comments }
+  .token-number    { color for numeric literals }
+  .token-function  { color for function/method names }
+  .token-operator  { color for operators: +, -, =, etc. }
+  .token-punctuation { color for brackets, commas, semicolons }
+  .token-variable  { color for variables and identifiers }
+Pick a cohesive color scheme (e.g. dark background with cyan/green/amber accents).`, language, spec)
 
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
@@ -110,17 +119,19 @@ func (c *Client) GenerateCodeSegments(ctx context.Context, spec, language string
 
 Spec: %s
 
-Split the code into 3 to 8 logical segments (e.g. imports, then each function or logical block). Preserve indentation: every line in each segment must keep its exact leading spaces/tabs; continuation segments inside a block must start with the same indentation as the line they continue.
+Split the code into 3 to 8 logical segments (e.g. imports, then each function or logical block). Preserve indentation: every line in each segment must keep its exact leading spaces/tabs.
+
+Wrap each syntax token with short tags (saves tokens). Use only: [[x]]content[[/x]] where x is one of: k=keyword, s=string, c=comment, n=number, f=function, o=operator, p=punctuation, v=variable. Do not put [[ or ]] inside content. Example: [[k]]function[[/k]] [[v]]add[[/v]]() { [[k]]return[[/k]] [[n]]1[[/n]] [[o]]+[[/o]] [[n]]2[[/n]]; } For operators like := or <- use [[o]]:=[[/o]] and [[o]]<-[[/o]] (whole operator inside one tag).
 
 For each segment output exactly this format, no other text:
 
 ---SEGMENT---
-<code for this segment only, with indentation preserved>
+<tagged code for this segment only, with indentation and [[type]]...[[/type]] wrappers>
 ---NARRATION---
 <one or two short sentences describing what this segment does, for a voiceover>
 ---END---
 
-Repeat ---SEGMENT--- / ---NARRATION--- / ---END--- for each segment. Output only valid code in segments and clear narration. No markdown fences.`, language, spec)
+Repeat ---SEGMENT--- / ---NARRATION--- / ---END--- for each segment. Output only the tagged code and narration. No markdown fences.`, language, spec)
 
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
@@ -131,6 +142,23 @@ Repeat ---SEGMENT--- / ---NARRATION--- / ---END--- for each segment. Output only
 	text := extractText(result)
 	segments := parseSegments(text)
 	return segments, nil
+}
+
+// GenerateWrappingNarration returns a short closing voiceover that summarizes what was built (no code, narration only).
+func (c *Client) GenerateWrappingNarration(ctx context.Context, spec, language string) (string, error) {
+	prompt := fmt.Sprintf(`Summarize in 2 to 4 short sentences what was built, for a closing voiceover. No code, no markdown.
+
+Spec: %s
+Language: %s
+
+Output only the narration text, nothing else.`, spec, language)
+	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
+		{Parts: []*genai.Part{{Text: prompt}}},
+	}, nil)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(extractText(result)), nil
 }
 
 func parseSegments(text string) []CodeSegment {
@@ -190,7 +218,7 @@ Output only the code, no markdown code fences or explanation.`, language, spec)
 // GenerateAudioStream uses REST TTS (response_modalities: ["audio"]) to generate speech from script and yields base64-encoded PCM chunks (same format as Live API for the frontend).
 func (c *Client) GenerateAudioStream(ctx context.Context, ttsModel, script string, yield func(base64Chunk string) error) error {
 	if ttsModel == "" {
-		ttsModel = "gemini-2.5-pro-preview-tts"
+		ttsModel = "gemini-2.5-flash-preview-tts"
 	}
 	temp := float32(1.0)
 	cfg := &genai.GenerateContentConfig{

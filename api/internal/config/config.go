@@ -34,7 +34,7 @@ func Load() *Config {
 	}
 	ttsModel := os.Getenv("GEMINI_TTS_MODEL")
 	if ttsModel == "" {
-		ttsModel = "gemini-2.5-pro-preview-tts"
+		ttsModel = "gemini-2.5-flash-preview-tts"
 	}
 	origins := os.Getenv("ALLOWED_ORIGINS")
 	if origins == "" {

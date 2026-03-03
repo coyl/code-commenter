@@ -51,7 +51,7 @@ func HandleTask(gc *gemini.Client, st *store.Store) http.HandlerFunc {
 			return
 		}
 
-		css, err := gc.GenerateCSS(r.Context(), spec)
+		css, err := gc.GenerateCSS(r.Context(), spec, req.Language)
 		if err != nil {
 			http.Error(w, "css generation failed: "+err.Error(), http.StatusInternalServerError)
 			return

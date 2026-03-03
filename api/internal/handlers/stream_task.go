@@ -61,8 +61,8 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			return
 		}
 
-		// 2) CSS
-		css, err := gc.GenerateCSS(ctx, spec)
+		// 2) CSS (with syntax highlighting for the chosen language)
+		css, err := gc.GenerateCSS(ctx, spec, req.Language)
 		if err != nil {
 			_ = writeStreamErr(ws, "css: "+err.Error())
 			return
@@ -98,6 +98,19 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			if seg.Narration != "" {
 				streamVoiceViaTTS(ctx, gc, ws, ttsModel, seg.Narration)
 			}
+		}
+		// 4) Final wrapping narration: outline what was done, played without code (narration-only segment)
+		wrapping, err := gc.GenerateWrappingNarration(ctx, spec, req.Language)
+		if err == nil && wrapping != "" {
+			if !send(map[string]interface{}{
+				"type":      "segment",
+				"index":     len(segments),
+				"code":      "",
+				"narration": wrapping,
+			}) {
+				return
+			}
+			streamVoiceViaTTS(ctx, gc, ws, ttsModel, wrapping)
 		}
 		codeStr := strings.TrimSpace(fullCode.String())
 		if !send(map[string]interface{}{"type": "code_done", "code": codeStr}) {

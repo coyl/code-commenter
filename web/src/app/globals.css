@@ -30,3 +30,13 @@ body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* Fallback syntax highlight (backend may override via #dynamic-theme) */
+#code-view .token-keyword { color: #22d3ee; }
+#code-view .token-string { color: #a3e635; }
+#code-view .token-comment { color: #71717a; font-style: italic; }
+#code-view .token-number { color: #fbbf24; }
+#code-view .token-function { color: #c084fc; }
+#code-view .token-operator { color: #94a3b8; }
+#code-view .token-punctuation { color: #94a3b8; }
+#code-view .token-variable { color: #e4e4e7; }
