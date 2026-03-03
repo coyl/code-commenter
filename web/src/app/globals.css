@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f0f12;
+  --foreground: #e4e4e7;
+  --muted: #71717a;
+  --accent: #22d3ee;
+  --card: #18181b;
+  --border: #27272a;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Dynamic theme from backend will be injected into #dynamic-theme */
+#dynamic-theme {
+  display: none;
+}
+
+/* Hide scrollbar but keep scroll behavior */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

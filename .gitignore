@@ -1,0 +1,45 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Go
+api/server
+api/*.exe
+api/*.dll
+api/*.so
+api/*.dylib
+api/vendor/
+api/.idea/
+
+# Node / TypeScript / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+web/.turbo/
+web/.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs and debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# Misc
+*.local
+.cache/
