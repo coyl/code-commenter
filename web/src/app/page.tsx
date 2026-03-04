@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
+import { findTokenEnd, stripOrphanClosers } from "@/lib/syntaxHighlight";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
@@ -27,45 +28,6 @@ const TOKEN_TAG_MAP: Record<string, string> = {
 function tokenClass(type: string): string {
   const t = type.trim().toLowerCase();
   return TOKEN_TAG_MAP[t] ? `token-${TOKEN_TAG_MAP[t]}` : "";
-}
-
-// Find end of token: try [[/type]] then fallback to [/type]] (LLM sometimes drops one '[').
-function findTokenEnd(code: string, contentStart: number, type: string): { end: number; skipLen: number } {
-  const close1 = "[[/" + type + "]]";
-  const close2 = "[/" + type + "]]";
-  let idx = code.indexOf(close1, contentStart);
-  if (idx !== -1) return { end: idx, skipLen: close1.length };
-  idx = code.indexOf(close2, contentStart);
-  if (idx !== -1) return { end: idx, skipLen: close2.length };
-  return { end: -1, skipLen: 0 };
-}
-
-// Remove orphan malformed closers like )[/p]] or }[/p]] from plain text (LLM drops first '[' of [[/x]]).
-function stripOrphanClosers(text: string): string {
-  const validTypes = new Set(["k", "s", "c", "n", "f", "o", "p", "v", "keyword", "string", "comment", "number", "function", "operator", "punctuation", "variable"]);
-  let out = "";
-  let i = 0;
-  while (i < text.length) {
-    const start = text.indexOf("[/", i);
-    if (start === -1) {
-      out += text.slice(i);
-      break;
-    }
-    out += text.slice(i, start);
-    const bracketEnd = text.indexOf("]]", start + 2);
-    if (bracketEnd === -1) {
-      out += text.slice(start);
-      break;
-    }
-    const type = text.slice(start + 2, bracketEnd).trim().toLowerCase();
-    if (validTypes.has(type) || /^[a-z]{1,2}$/.test(type)) {
-      i = bracketEnd + 2;
-    } else {
-      out += text.slice(start, bracketEnd + 2);
-      i = bracketEnd + 2;
-    }
-  }
-  return out;
 }
 
 // Splits segment code into chunks: each chunk is either a run of plain text or one full [[x]]...[[/x]] token.

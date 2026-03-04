@@ -6,12 +6,12 @@ import (
 
 // Config holds application configuration from environment.
 type Config struct {
-	Port            string // HTTP server port
-	GeminiAPIKey    string // GOOGLE_API_KEY or GEMINI_API_KEY for Gemini 3.1 and Live API
-	GeminiModel     string // gemini-3-flash-preview for generation
-	LiveAPIModel    string // Live API model for voice; fallback to TTS if not available
-	TTSModel        string // REST TTS model when Live API unavailable (e.g. gemini-2.5-pro-preview-tts)
-	AllowedOrigins  string // CORS origins (comma-separated)
+	Port           string // HTTP server port
+	GeminiAPIKey   string // GOOGLE_API_KEY or GEMINI_API_KEY for Gemini 3.1 and Live API
+	GeminiModel    string // gemini-3-flash-preview for generation
+	LiveAPIModel   string // Live API model for voice; fallback to TTS if not available
+	TTSModel       string // REST TTS model when Live API unavailable (e.g. gemini-2.5-pro-preview-tts)
+	AllowedOrigins string // CORS origins (comma-separated)
 }
 
 // Load reads config from environment.
@@ -26,7 +26,7 @@ func Load() *Config {
 	}
 	model := os.Getenv("GEMINI_MODEL")
 	if model == "" {
-		model = "gemini-3-flash-preview"
+		model = "gemini-3.1-flash-lite-preview"
 	}
 	liveModel := os.Getenv("GEMINI_LIVE_MODEL")
 	if liveModel == "" {
@@ -41,7 +41,7 @@ func Load() *Config {
 		origins = "http://localhost:3000"
 	}
 	return &Config{
-		Port:            port,
+		Port:           port,
 		GeminiAPIKey:   apiKey,
 		GeminiModel:    model,
 		LiveAPIModel:   liveModel,

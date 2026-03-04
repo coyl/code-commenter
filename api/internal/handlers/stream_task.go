@@ -3,13 +3,15 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/rs/zerolog/log"
 	"code-commenter/api/internal/gemini"
 	"code-commenter/api/internal/store"
 )
@@ -51,8 +53,12 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			return ws.WriteJSON(v) == nil
 		}
 
+		streamStart := time.Now()
+		log.Info().Str("phase", "start").Dur("elapsed", 0).Msg("stream task")
+
 		// 1) Spec + narration
 		spec, narration, err := gc.GenerateTaskSpec(ctx, req.Task, req.Language)
+		log.Info().Str("phase", "spec").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 		if err != nil {
 			_ = writeStreamErr(ws, "spec: "+err.Error())
 			return
@@ -70,13 +76,58 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 		if !send(map[string]interface{}{"type": "css", "css": css}) {
 			return
 		}
+		log.Info().Str("phase", "css").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
-		// 3) Code as segments with synced narration: each segment = code + narration, then TTS for that narration
+		// 3) Code as segments with synced narration: each segment = code + narration, then TTS for that narration.
+		// Run TTS asynchronously for all segments; deliver segment messages and audio in order.
 		segments, err := gc.GenerateCodeSegments(ctx, spec, req.Language)
 		if err != nil {
 			_ = writeStreamErr(ws, "segments: "+err.Error())
 			return
 		}
+		log.Info().Str("phase", "segments").Int("n", len(segments)).Dur("elapsed", time.Since(streamStart)).Msg("stream task")
+
+		type ttsResult struct {
+			Index  int
+			Chunks []string
+			Err    error
+		}
+		// Start TTS for every segment that has narration (async)
+		ttsResults := make(chan ttsResult, len(segments)+1)
+		var wg sync.WaitGroup
+		for i, seg := range segments {
+			if seg.Narration == "" {
+				continue
+			}
+			idx, narration := i, seg.Narration
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				chunks, err := generateAudioChunks(ctx, gc, ttsModel, narration)
+				ttsResults <- ttsResult{Index: idx, Chunks: chunks, Err: err}
+			}()
+		}
+		go func() {
+			wg.Wait()
+			close(ttsResults)
+		}()
+
+		// Collect all async TTS results by index so we can deliver in order
+		pendingAudio := make(map[int]ttsResult)
+		ttsCount := 0
+		for _, seg := range segments {
+			if seg.Narration != "" {
+				ttsCount++
+			}
+		}
+		for n := 0; n < ttsCount; n++ {
+			r, ok := <-ttsResults
+			if !ok {
+				break
+			}
+			pendingAudio[r.Index] = r
+		}
+
 		var fullCode strings.Builder
 		for i, seg := range segments {
 			if i > 0 {
@@ -96,11 +147,23 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				return
 			}
 			if seg.Narration != "" {
-				streamVoiceViaTTS(ctx, gc, ws, ttsModel, seg.Narration)
+				r := pendingAudio[i]
+				if r.Err != nil {
+					log.Error().Err(r.Err).Int("segment", i).Msg("TTS error")
+					_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + r.Err.Error()})
+				} else {
+					for _, b64 := range r.Chunks {
+						if !send(map[string]interface{}{"type": "audio", "data": b64}) {
+							return
+						}
+					}
+				}
 			}
 		}
+
 		// 4) Final wrapping narration: outline what was done, played without code (narration-only segment)
 		wrapping, err := gc.GenerateWrappingNarration(ctx, spec, req.Language)
+		log.Info().Str("phase", "wrapping").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 		if err == nil && wrapping != "" {
 			if !send(map[string]interface{}{
 				"type":      "segment",
@@ -110,12 +173,29 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			}) {
 				return
 			}
-			streamVoiceViaTTS(ctx, gc, ws, ttsModel, wrapping)
+			// Async TTS for wrapping; we need it in order after the segment message (already sent)
+			wrapCh := make(chan ttsResult, 1)
+			go func() {
+				chunks, err := generateAudioChunks(ctx, gc, ttsModel, wrapping)
+				wrapCh <- ttsResult{Index: len(segments), Chunks: chunks, Err: err}
+			}()
+			r := <-wrapCh
+			if r.Err != nil {
+				log.Error().Err(r.Err).Msg("TTS wrapping error")
+				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + r.Err.Error()})
+			} else {
+				for _, b64 := range r.Chunks {
+					if !send(map[string]interface{}{"type": "audio", "data": b64}) {
+						return
+					}
+				}
+			}
 		}
 		codeStr := strings.TrimSpace(fullCode.String())
 		if !send(map[string]interface{}{"type": "code_done", "code": codeStr}) {
 			return
 		}
+		log.Info().Str("phase", "code_done").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
 		id := uuid.New().String()
 		st.Put(&store.Session{
@@ -151,15 +231,13 @@ func voiceSetup(model string) []byte {
 	return b
 }
 
-// streamVoiceViaTTS uses REST TTS (gemini-2.5-pro-preview-tts) to generate speech and streams base64 PCM chunks to the client (same format as Live API).
-func streamVoiceViaTTS(ctx context.Context, gc *gemini.Client, clientWS *websocket.Conn, ttsModel, narration string) {
-	err := gc.GenerateAudioStream(ctx, ttsModel, narration, func(base64Chunk string) error {
-		return clientWS.WriteJSON(map[string]interface{}{"type": "audio", "data": base64Chunk})
+// generateAudioChunks runs TTS and returns all base64 PCM chunks (for async generation; client receives in order).
+func generateAudioChunks(ctx context.Context, gc *gemini.Client, ttsModel, narration string) (chunks []string, err error) {
+	err = gc.GenerateAudioStream(ctx, ttsModel, narration, func(base64Chunk string) error {
+		chunks = append(chunks, base64Chunk)
+		return nil
 	})
-	if err != nil {
-		log.Printf("[tts] fallback TTS error: %v", err)
-		_ = clientWS.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + err.Error()})
-	}
+	return chunks, err
 }
 
 // streamVoiceToClient connects to Live API, sends narration text via clientContent (per Live API docs), and forwards audio to the client. Returns the number of audio chunks sent.
@@ -176,7 +254,7 @@ func streamVoiceToClient(clientWS *websocket.Conn, apiKey, model, narration stri
 	defer geminiWS.Close()
 
 	if err := geminiWS.WriteMessage(websocket.TextMessage, voiceSetup(model)); err != nil {
-		log.Printf("[live] write setup: %v", err)
+		log.Error().Err(err).Str("op", "live").Msg("write setup")
 		return 0
 	}
 	// Per Live API docs: send text via clientContent with turns and turnComplete: true
@@ -193,16 +271,16 @@ func streamVoiceToClient(clientWS *websocket.Conn, apiKey, model, narration stri
 	}
 	payload, _ := json.Marshal(clientContent)
 	if err := geminiWS.WriteMessage(websocket.TextMessage, payload); err != nil {
-		log.Printf("[live] write clientContent: %v", err)
+		log.Error().Err(err).Str("op", "live").Msg("write clientContent")
 		return 0
 	}
-	log.Printf("[live] sent narration (%d chars), reading serverContent...", len(narration))
+	log.Debug().Int("narration_len", len(narration)).Msg("live: sent narration, reading serverContent")
 
 	audioChunks := 0
 	for {
 		mt, data, err := geminiWS.ReadMessage()
 		if err != nil {
-			log.Printf("[live] read error: %v (forwarded %d audio chunks)", err, audioChunks)
+			log.Warn().Err(err).Int("audio_chunks", audioChunks).Msg("live: read error")
 			break
 		}
 		if mt != websocket.TextMessage {
@@ -217,7 +295,7 @@ func streamVoiceToClient(clientWS *websocket.Conn, apiKey, model, narration stri
 			for k := range msg {
 				keys = append(keys, k)
 			}
-			log.Printf("[live] server message keys: %v", keys)
+			log.Debug().Strs("keys", keys).Msg("live: server message keys")
 		}
 		// serverContent / server_content (camelCase common in JSON)
 		sc, _ := msg["serverContent"].(map[string]interface{})
@@ -252,7 +330,7 @@ func streamVoiceToClient(clientWS *websocket.Conn, apiKey, model, narration stri
 			}
 		}
 	}
-	log.Printf("[live] done (forwarded %d audio chunks)", audioChunks)
+	log.Debug().Int("audio_chunks", audioChunks).Msg("live: done")
 	return audioChunks
 }
 

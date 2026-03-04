@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
-	"log"
 	"net/http"
+	"os"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"code-commenter/api/internal/config"
 	"code-commenter/api/internal/gemini"
@@ -12,15 +15,18 @@ import (
 )
 
 func main() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: "15:04:05.000"})
+
 	cfg := config.Load()
 	if cfg.GeminiAPIKey == "" {
-		log.Fatal("GEMINI_API_KEY or GOOGLE_API_KEY is required")
+		log.Fatal().Msg("GEMINI_API_KEY or GOOGLE_API_KEY is required")
 	}
 
 	ctx := context.Background()
 	gc, err := gemini.NewClient(ctx, cfg.GeminiAPIKey, cfg.GeminiModel)
 	if err != nil {
-		log.Fatalf("gemini client: %v", err)
+		log.Fatal().Err(err).Msg("gemini client")
 	}
 	defer func() { _ = gc.Close() }()
 
@@ -35,9 +41,9 @@ func main() {
 	// CORS middleware
 	handler := corsMiddleware(mux, cfg.AllowedOrigins)
 
-	log.Printf("Listening on :%s", cfg.Port)
+	log.Info().Str("port", cfg.Port).Msg("listening")
 	if err := http.ListenAndServe(":"+cfg.Port, handler); err != nil {
-		log.Fatal(err)
+		log.Fatal().Err(err).Msg("server")
 	}
 }
 
