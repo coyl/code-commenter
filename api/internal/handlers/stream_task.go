@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"html"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +15,8 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 	"code-commenter/api/internal/gemini"
+	"code-commenter/api/internal/highlight"
+	"code-commenter/api/internal/jobstore"
 	"code-commenter/api/internal/store"
 )
 
@@ -23,7 +27,7 @@ type StreamTaskRequest struct {
 }
 
 // HandleStreamTask runs the full pipeline (spec → CSS → code segments with synced narration); each segment sends code + narration then TTS for that narration.
-func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, ttsModel string) http.HandlerFunc {
+func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, ttsModel string, jobStore *jobstore.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if apiKey == "" {
 			http.Error(w, "API not configured", http.StatusServiceUnavailable)
@@ -48,13 +52,21 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			req.Language = "javascript"
 		}
 
+		jobID := ""
+		if id, err := uuid.NewV7(); err == nil {
+			jobID = id.String()
+			if ws.WriteJSON(map[string]string{"type": "job_started", "id": jobID}) != nil {
+				return
+			}
+		}
+
 		ctx := r.Context()
 		send := func(v interface{}) bool {
 			return ws.WriteJSON(v) == nil
 		}
 
 		streamStart := time.Now()
-		log.Info().Str("phase", "start").Dur("elapsed", 0).Msg("stream task")
+		log.Info().Str("phase", "start").Str("job", jobID).Dur("elapsed", 0).Msg("stream task")
 
 		// 1) Spec + narration
 		spec, narration, err := gc.GenerateTaskSpec(ctx, req.Task, req.Language)
@@ -80,7 +92,7 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 
 		// 3) Code as segments with synced narration: each segment = code + narration, then TTS for that narration.
 		// Run TTS asynchronously for all segments; deliver segment messages and audio in order.
-		segments, err := gc.GenerateCodeSegments(ctx, spec, req.Language)
+		segments, rawSegmentsJSON, err := gc.GenerateCodeSegments(ctx, spec, req.Language)
 		if err != nil {
 			_ = writeStreamErr(ws, "segments: "+err.Error())
 			return
@@ -128,20 +140,27 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			pendingAudio[r.Index] = r
 		}
 
-		var fullCode strings.Builder
+		lexerLang := normalizeLexerLanguage(req.Language)
+		var fullPlain strings.Builder
 		for i, seg := range segments {
 			if i > 0 {
-				fullCode.WriteString("\n")
+				fullPlain.WriteString("\n")
 			}
-			fullCode.WriteString(seg.Code)
-			segmentPayload := seg.Code
+			fullPlain.WriteString(seg.Code)
+			segHTML, err := highlight.CodeToHTML(seg.Code, lexerLang)
+			if err != nil {
+				segHTML = htmlEscapeCode(seg.Code)
+			}
+			segCodePlain := seg.Code
 			if i > 0 {
-				segmentPayload = "\n" + seg.Code
+				segHTML = "\n" + segHTML
+				segCodePlain = "\n" + seg.Code
 			}
 			if !send(map[string]interface{}{
 				"type":      "segment",
 				"index":     i,
-				"code":      segmentPayload,
+				"code":      segHTML,
+				"codePlain": segCodePlain,
 				"narration": seg.Narration,
 			}) {
 				return
@@ -162,6 +181,7 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 		}
 
 		// 4) Final wrapping narration: outline what was done, played without code (narration-only segment)
+		var wrapAudioChunks []string
 		wrapping, err := gc.GenerateWrappingNarration(ctx, spec, req.Language)
 		log.Info().Str("phase", "wrapping").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 		if err == nil && wrapping != "" {
@@ -169,11 +189,11 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				"type":      "segment",
 				"index":     len(segments),
 				"code":      "",
+				"codePlain": "",
 				"narration": wrapping,
 			}) {
 				return
 			}
-			// Async TTS for wrapping; we need it in order after the segment message (already sent)
 			wrapCh := make(chan ttsResult, 1)
 			go func() {
 				chunks, err := generateAudioChunks(ctx, gc, ttsModel, wrapping)
@@ -184,6 +204,7 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				log.Error().Err(r.Err).Msg("TTS wrapping error")
 				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + r.Err.Error()})
 			} else {
+				wrapAudioChunks = r.Chunks
 				for _, b64 := range r.Chunks {
 					if !send(map[string]interface{}{"type": "audio", "data": b64}) {
 						return
@@ -191,23 +212,108 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				}
 			}
 		}
-		codeStr := strings.TrimSpace(fullCode.String())
-		if !send(map[string]interface{}{"type": "code_done", "code": codeStr}) {
+		codePlain := strings.TrimSpace(fullPlain.String())
+		var fullHTML strings.Builder
+		for i, seg := range segments {
+			if i > 0 {
+				fullHTML.WriteString("\n")
+			}
+			segHTML, err := highlight.CodeToHTML(seg.Code, lexerLang)
+			if err != nil {
+				segHTML = htmlEscapeCode(seg.Code)
+			}
+			fullHTML.WriteString(segHTML)
+		}
+		if !send(map[string]interface{}{"type": "code_done", "code": fullHTML.String(), "codePlain": codePlain, "rawJson": rawSegmentsJSON}) {
 			return
 		}
 		log.Info().Str("phase", "code_done").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
-		id := uuid.New().String()
+		id := jobID
+		if id == "" {
+			id = uuid.New().String()
+		}
 		st.Put(&store.Session{
 			ID:        id,
 			CSS:       css,
-			Code:      codeStr,
+			Code:      codePlain,
 			Language:  req.Language,
 			Spec:      spec,
 			Narration: "", // full narration is segment list
 		})
+
+		if jobStore != nil && jobID != "" {
+			segmentsStored := make([]jobstore.SegmentStored, 0, len(segments)+1)
+			segmentAudio := make([][]byte, 0, len(segments)+1)
+			for i, seg := range segments {
+				segHTML, _ := highlight.CodeToHTML(seg.Code, lexerLang)
+				if segHTML == "" {
+					segHTML = htmlEscapeCode(seg.Code)
+				}
+				if i > 0 {
+					segHTML = "\n" + segHTML
+				}
+				segCodePlain := seg.Code
+				if i > 0 {
+					segCodePlain = "\n" + seg.Code
+				}
+				segmentsStored = append(segmentsStored, jobstore.SegmentStored{
+					Code:      segHTML,
+					CodePlain: segCodePlain,
+					Narration: seg.Narration,
+				})
+				var pcm []byte
+				if seg.Narration != "" {
+					r := pendingAudio[i]
+					if r.Err == nil {
+						for _, b64 := range r.Chunks {
+							dec, _ := base64.StdEncoding.DecodeString(b64)
+							pcm = append(pcm, dec...)
+						}
+					}
+				}
+				segmentAudio = append(segmentAudio, pcm)
+			}
+			if wrapping != "" {
+				segmentsStored = append(segmentsStored, jobstore.SegmentStored{Narration: wrapping})
+				var wrapPcm []byte
+				for _, b64 := range wrapAudioChunks {
+					dec, _ := base64.StdEncoding.DecodeString(b64)
+					wrapPcm = append(wrapPcm, dec...)
+				}
+				segmentAudio = append(segmentAudio, wrapPcm)
+			}
+			if err := jobStore.UploadJob(ctx, jobID, req.Task, rawSegmentsJSON, fullHTML.String(), codePlain, segmentsStored, segmentAudio); err != nil {
+				log.Error().Err(err).Str("job", jobID).Msg("S3 upload failed")
+			}
+		}
+
 		_ = send(map[string]interface{}{"type": "session", "id": id})
 	}
+}
+
+// normalizeLexerLanguage maps frontend language names to Chroma lexer names.
+func normalizeLexerLanguage(lang string) string {
+	switch strings.ToLower(lang) {
+	case "go", "golang":
+		return "go"
+	case "js", "javascript":
+		return "javascript"
+	case "ts", "typescript":
+		return "typescript"
+	case "py", "python":
+		return "python"
+	case "rb", "ruby":
+		return "ruby"
+	case "rs", "rust":
+		return "rust"
+	default:
+		return lang
+	}
+}
+
+func htmlEscapeCode(code string) string {
+	return html.EscapeString(code)
 }
 
 func writeStreamErr(ws *websocket.Conn, msg string) error {
