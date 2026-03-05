@@ -146,7 +146,6 @@ export default function Home() {
             break;
           case "code_chunk":
             streamCodeBufferRef.current += msg.chunk || "";
-            setDisplayedCode(streamCodeBufferRef.current);
             setCode(streamCodeBufferRef.current);
             break;
           case "code_done": {
@@ -171,7 +170,6 @@ export default function Home() {
             pendingAudioChunksRef.current = [];
             const full = (msg.code || "").trim();
             setCode(full);
-            setDisplayedCode(full);
             streamCodeBufferRef.current = full;
             if (typeof msg.rawJson === "string") setRawJsonOutput(msg.rawJson);
             break;

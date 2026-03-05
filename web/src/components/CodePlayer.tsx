@@ -47,7 +47,9 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
   const [currentNarration, setCurrentNarration] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
 
+  const codeContainerRef = useRef<HTMLPreElement>(null);
   const streamCodeBufferRef = useRef("");
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playNextTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,18 +74,28 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     };
   }, [stopAudio]);
 
+  // Scroll to follow the typing (keep end of content in view)
+  useEffect(() => {
+    const el = codeContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight - el.clientHeight;
+  }, [displayedCode]);
+
   const typeSegment = useCallback(
     (
       segmentCode: string,
-      speedMs: number,
+      msPerChunk: number,
       prefix: string,
       onComplete?: () => void
     ) => {
       if (typingTimerRef.current) clearInterval(typingTimerRef.current);
       streamCodeBufferRef.current = prefix + segmentCode;
       const chunks = getHTMLChunks(segmentCode);
-      const visChars = chunks.reduce((n, c) => n + (c.startsWith("<") ? 1 : 1), 0);
-      const msPerChunk = Math.max(5, Math.round(speedMs * Math.max(1, visChars / chunks.length)));
+      if (chunks.length === 0) {
+        onComplete?.();
+        return;
+      }
+      // Use the 80%-based interval directly so typing finishes at 80% of audio (min 1ms to avoid runaway)
+      const intervalMs = Math.max(1, msPerChunk);
       let chunkIdx = 0;
       typingTimerRef.current = setInterval(() => {
         chunkIdx += 1;
@@ -96,7 +108,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
           }
           onComplete?.();
         }
-      }, msPerChunk);
+      }, intervalMs);
     },
     [onDisplayedCodeChange]
   );
@@ -105,6 +117,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     (i: number) => {
       const segs = segmentsRef.current;
       if (i < 0 || i >= segs.length) return;
+      setHasStartedPlayback(true);
       if (playNextTimeoutRef.current) {
         clearTimeout(playNextTimeoutRef.current);
         playNextTimeoutRef.current = null;
@@ -228,10 +241,13 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
           segments.length > 0 ? "rounded-t-lg" : "rounded-lg"
         }`}
       >
-        <pre className="p-4 text-sm overflow-hidden font-mono whitespace-pre text-zinc-100 flex-1 min-h-0">
+        <pre
+          ref={codeContainerRef}
+          className="p-4 text-sm overflow-y-auto overflow-x-hidden font-mono whitespace-pre text-zinc-100 flex-1 min-h-0 scrollbar-hide"
+        >
           {segments.length > 0 ? (
             <>
-              {segments.map((_, i) => {
+              {!hasStartedPlayback ? null : segments.map((_, i) => {
                 const start = cumLengths[i];
                 const end = Math.min(cumLengths[i + 1], displayedCode.length);
                 if (start > displayedCode.length) return null;
@@ -240,17 +256,28 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
                 return (
                   <span
                     key={i}
-                    className={isCurrent ? "bg-zinc-800/70 rounded-sm" : undefined}
-                    dangerouslySetInnerHTML={{ __html: text }}
-                  />
+                    className={isCurrent ? "block bg-zinc-800/70 rounded-sm py-0.5 -my-0.5" : undefined}
+                  >
+                    <span dangerouslySetInnerHTML={{ __html: text }} />
+                    {isCurrent && hasStartedPlayback && (
+                      <span
+                        className="inline-block w-0.5 h-4 align-middle bg-zinc-100 animate-pulse ml-0.5"
+                        aria-hidden
+                      />
+                    )}
+                  </span>
                 );
               })}
-              {loading && displayedCode.length > 0 && <span className="animate-pulse">|</span>}
             </>
           ) : (
             <>
               <span dangerouslySetInnerHTML={{ __html: displayedCode }} />
-              {loading && displayedCode.length > 0 && <span className="animate-pulse">|</span>}
+              {displayedCode.length > 0 && (
+                <span
+                  className="inline-block w-0.5 h-4 align-middle bg-zinc-100 animate-pulse ml-0.5"
+                  aria-hidden
+                />
+              )}
             </>
           )}
         </pre>

@@ -45,7 +45,7 @@ export default function JobPage() {
       .then((data: JobData) => {
         if (!cancelled) {
           setJob(data);
-          setDisplayedCode(data.fullCode ?? "");
+          setDisplayedCode("");
         }
       })
       .catch((e) => {

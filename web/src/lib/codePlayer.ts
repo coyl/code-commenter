@@ -28,11 +28,17 @@ export function getHTMLChunks(html: string): string[] {
   return chunks;
 }
 
-/** Typing speed so text finishes by 80% of audio length. Returns ms per character. */
-export function typingSpeedFor80Percent(codeLength: number, audioChunks: string[]): number {
-  if (codeLength <= 0) return 20;
+/**
+ * Typing speed so text finishes by 80% of audio length.
+ * @param numTypingSteps - number of typing steps (chunks) for this segment
+ * @param audioChunks - base64 PCM chunks for this segment
+ * @returns ms per typing step so that total typing time = 80% of audio duration
+ */
+export function typingSpeedFor80Percent(numTypingSteps: number, audioChunks: string[]): number {
+  if (numTypingSteps <= 0) return 20;
   const durationSec = audioDurationSeconds(audioChunks);
   if (durationSec <= 0) return 20;
-  const targetMs = 0.8 * durationSec * 1000;
-  return Math.max(5, Math.min(80, Math.round(targetMs / codeLength)));
+  const targetTypingMs = 0.8 * durationSec * 1000;
+  const msPerStep = targetTypingMs / numTypingSteps;
+  return Math.max(2, Math.min(200, msPerStep));
 }
