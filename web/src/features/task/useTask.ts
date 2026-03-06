@@ -25,5 +25,7 @@ export function useTask(api = fetchApiAdapter) {
     [api]
   );
 
-  return { runTask, loading, error };
+  const clearError = useCallback(() => setError(null), []);
+
+  return { runTask, loading, error, clearError };
 }

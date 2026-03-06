@@ -50,8 +50,14 @@ export default function Home() {
     [stopAudio, unlockAudio]
   );
   const { runStream } = useStreamTask(streamCallbacks);
-  const { runTask, error: taskError } = useTask();
-  const { applyChange, changing, error: changeError } = useChange();
+  const { runTask, error: taskError, clearError: clearTaskError } = useTask();
+  const { applyChange, changing, error: changeError, clearError: clearChangeError } = useChange();
+
+  const clearAllErrors = () => {
+    setError(null);
+    clearTaskError();
+    clearChangeError();
+  };
 
   useEffect(() => {
     if (!css) return;
@@ -74,13 +80,14 @@ export default function Home() {
 
   const submitTaskStream = () => {
     if (!task.trim()) return;
+    clearAllErrors();
     setDisplayedCode("");
     runStream(task.trim(), language);
   };
 
   const submitTask = async () => {
     if (!task.trim()) return;
-    setError(null);
+    clearAllErrors();
     setLoading(true);
     try {
       const data = await runTask(task.trim(), language || "javascript");
@@ -98,7 +105,7 @@ export default function Home() {
 
   const submitChange = async () => {
     if (!sessionId || !changeMessage.trim()) return;
-    setError(null);
+    clearAllErrors();
     const data = await applyChange(sessionId, changeMessage.trim());
     if (data) {
       setCss(data.css);

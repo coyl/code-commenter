@@ -26,5 +26,7 @@ export function useChange(api = fetchApiAdapter) {
     [api]
   );
 
-  return { applyChange, changing, error };
+  const clearError = useCallback(() => setError(null), []);
+
+  return { applyChange, changing, error, clearError };
 }
