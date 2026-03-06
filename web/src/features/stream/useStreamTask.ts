@@ -47,6 +47,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
       onLoading(true);
       onCss("");
       onCode("");
+      onNarration("");
       onSegments([]);
       onRawJson("");
       onStreamEnded(false);
