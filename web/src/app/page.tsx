@@ -74,6 +74,7 @@ export default function Home() {
 
   const submitTaskStream = () => {
     if (!task.trim()) return;
+    setDisplayedCode("");
     runStream(task.trim(), language);
   };
 
