@@ -49,9 +49,12 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /task", handlers.HandleTask(gc, st))
+	// jobStore may be nil when S3 is not configured; stream task skips S3 upload in that case.
 	mux.HandleFunc("GET /task/stream", handlers.HandleStreamTask(gc, st, cfg.GeminiAPIKey, cfg.LiveAPIModel, cfg.TTSModel, jobStore))
 	mux.HandleFunc("POST /task/{id}/change", handlers.HandleChange(gc, st))
-	mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobStore))
+	if jobStore != nil {
+		mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobStore))
+	}
 	mux.HandleFunc("GET /live", handlers.HandleLive(cfg.GeminiAPIKey, cfg.LiveAPIModel))
 
 	// CORS middleware
