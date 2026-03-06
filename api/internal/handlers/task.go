@@ -5,8 +5,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"code-commenter/api/internal/gemini"
-	"code-commenter/api/internal/store"
+	"code-commenter/api/internal/ports"
 )
 
 // TaskRequest is the JSON body for POST /task.
@@ -26,7 +25,7 @@ type TaskResponse struct {
 }
 
 // HandleTask creates a new task: Gemini spec + CSS + code; stores session; returns CSS, code, narration.
-func HandleTask(gc *gemini.Client, st *store.Store) http.HandlerFunc {
+func HandleTask(gen ports.GenerationPort, sessions ports.SessionRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -45,26 +44,26 @@ func HandleTask(gc *gemini.Client, st *store.Store) http.HandlerFunc {
 			req.Language = "javascript"
 		}
 
-		spec, narration, err := gc.GenerateTaskSpec(r.Context(), req.Task, req.Language)
+		spec, narration, err := gen.GenerateTaskSpec(r.Context(), req.Task, req.Language)
 		if err != nil {
 			http.Error(w, "task spec failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		css, err := gc.GenerateCSS(r.Context(), spec, req.Language)
+		css, err := gen.GenerateCSS(r.Context(), spec, req.Language)
 		if err != nil {
 			http.Error(w, "css generation failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		code, err := gc.GenerateCode(r.Context(), spec, req.Language)
+		code, err := gen.GenerateCode(r.Context(), spec, req.Language)
 		if err != nil {
 			http.Error(w, "code generation failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		id := uuid.New().String()
-		st.Put(&store.Session{
+		sessions.Put(ports.SessionData{
 			ID:        id,
 			CSS:       css,
 			Code:      code,

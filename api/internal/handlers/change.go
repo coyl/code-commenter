@@ -4,8 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"code-commenter/api/internal/gemini"
-	"code-commenter/api/internal/store"
+	"code-commenter/api/internal/ports"
 )
 
 // ChangeRequest is the JSON body for POST /task/:id/change.
@@ -21,7 +20,7 @@ type ChangeResponse struct {
 }
 
 // HandleChange applies a user change request: Gemini returns new CSS and code diff; we apply diff and store.
-func HandleChange(gc *gemini.Client, st *store.Store) http.HandlerFunc {
+func HandleChange(gen ports.GenerationPort, sessions ports.SessionRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -32,7 +31,7 @@ func HandleChange(gc *gemini.Client, st *store.Store) http.HandlerFunc {
 			http.Error(w, "task id required", http.StatusBadRequest)
 			return
 		}
-		sess := st.Get(id)
+		sess := sessions.Get(id)
 		if sess == nil {
 			http.Error(w, "session not found", http.StatusNotFound)
 			return
@@ -48,7 +47,7 @@ func HandleChange(gc *gemini.Client, st *store.Store) http.HandlerFunc {
 			return
 		}
 
-		newCSS, newCode, unifiedDiff, err := gc.GenerateChange(r.Context(), sess.CSS, sess.Code, req.Message, sess.Language)
+		newCSS, newCode, unifiedDiff, err := gen.GenerateChange(r.Context(), sess.CSS, sess.Code, req.Message, sess.Language)
 		if err != nil {
 			http.Error(w, "change generation failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -61,7 +60,7 @@ func HandleChange(gc *gemini.Client, st *store.Store) http.HandlerFunc {
 			newCSS = sess.CSS
 		}
 
-		st.Put(&store.Session{
+		sessions.Put(ports.SessionData{
 			ID:        sess.ID,
 			CSS:       newCSS,
 			Code:      newCode,

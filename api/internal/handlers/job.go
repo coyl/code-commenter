@@ -5,11 +5,11 @@ import (
 	"net/http"
 
 	"github.com/rs/zerolog/log"
-	"code-commenter/api/internal/jobstore"
+	"code-commenter/api/internal/ports"
 )
 
 // HandleGetJob returns a job by ID from S3 (GET /jobs/{id}).
-func HandleGetJob(store *jobstore.Client) http.HandlerFunc {
+func HandleGetJob(store ports.JobRepository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -20,7 +20,7 @@ func HandleGetJob(store *jobstore.Client) http.HandlerFunc {
 			http.Error(w, "job id required", http.StatusBadRequest)
 			return
 		}
-		if store == nil {
+		if store == nil || !store.IsEnabled() {
 			http.Error(w, "job storage not configured", http.StatusServiceUnavailable)
 			return
 		}
