@@ -133,11 +133,11 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			}
 		}
 		for n := 0; n < ttsCount; n++ {
-			r, ok := <-ttsResults
+			res, ok := <-ttsResults
 			if !ok {
 				break
 			}
-			pendingAudio[r.Index] = r
+			pendingAudio[res.Index] = res
 		}
 
 		lexerLang := normalizeLexerLanguage(req.Language)
@@ -166,12 +166,12 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				return
 			}
 			if seg.Narration != "" {
-				r := pendingAudio[i]
-				if r.Err != nil {
-					log.Error().Err(r.Err).Int("segment", i).Msg("TTS error")
-					_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + r.Err.Error()})
+				res := pendingAudio[i]
+				if res.Err != nil {
+					log.Error().Err(res.Err).Int("segment", i).Msg("TTS error")
+					_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + res.Err.Error()})
 				} else {
-					for _, b64 := range r.Chunks {
+					for _, b64 := range res.Chunks {
 						if !send(map[string]interface{}{"type": "audio", "data": b64}) {
 							return
 						}
@@ -199,13 +199,13 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				chunks, err := generateAudioChunks(ctx, gc, ttsModel, wrapping)
 				wrapCh <- ttsResult{Index: len(segments), Chunks: chunks, Err: err}
 			}()
-			r := <-wrapCh
-			if r.Err != nil {
-				log.Error().Err(r.Err).Msg("TTS wrapping error")
-				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + r.Err.Error()})
+			res := <-wrapCh
+			if res.Err != nil {
+				log.Error().Err(res.Err).Msg("TTS wrapping error")
+				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + res.Err.Error()})
 			} else {
-				wrapAudioChunks = r.Chunks
-				for _, b64 := range r.Chunks {
+				wrapAudioChunks = res.Chunks
+				for _, b64 := range res.Chunks {
 					if !send(map[string]interface{}{"type": "audio", "data": b64}) {
 						return
 					}
@@ -264,9 +264,9 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				})
 				var pcm []byte
 				if seg.Narration != "" {
-					r := pendingAudio[i]
-					if r.Err == nil {
-						for _, b64 := range r.Chunks {
+					res := pendingAudio[i]
+					if res.Err == nil {
+						for _, b64 := range res.Chunks {
 							dec, _ := base64.StdEncoding.DecodeString(b64)
 							pcm = append(pcm, dec...)
 						}
