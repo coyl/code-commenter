@@ -3,10 +3,14 @@ package gemini
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/rs/zerolog/log"
 	"google.golang.org/genai"
+
 )
 
 // Client wraps Gemini 3.1 for task spec, CSS, code, and diff generation.
@@ -40,6 +44,14 @@ func (c *Client) Close() error {
 
 // GenerateTaskSpec asks Gemini to turn a task description into a structured spec and optional narration script.
 func (c *Client) GenerateTaskSpec(ctx context.Context, task, language string) (spec, narrationScript string, err error) {
+	start := time.Now()
+	defer func() {
+		ev := log.Info().Str("op", "GenerateTaskSpec").Dur("dur", time.Since(start))
+		if err != nil {
+			ev = log.Error().Err(err).Str("op", "GenerateTaskSpec").Dur("dur", time.Since(start))
+		}
+		ev.Msg("llm request")
+	}()
 	prompt := fmt.Sprintf(`You are a coding assistant. The user will describe a coding task. Output a short structured spec (what to build) and an optional narration script for a voiceover that explains the code in 2-4 sentences.
 
 Task: %s
@@ -81,12 +93,15 @@ Output only valid CSS, no markdown code fences. Include:
   .token-variable  { color for variables and identifiers }
 Pick a cohesive color scheme (e.g. dark background with cyan/green/amber accents).`, language, spec)
 
+	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
 	}, nil)
 	if err != nil {
+		log.Error().Err(err).Str("op", "GenerateCSS").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", err
 	}
+	log.Info().Str("op", "GenerateCSS").Dur("dur", time.Since(start)).Msg("llm request")
 	return strings.TrimSpace(cleanCodeBlock(extractText(result))), nil
 }
 
@@ -98,50 +113,84 @@ Spec: %s
 
 Output only the code, no markdown code fences or explanation.`, language, spec)
 
+	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
 	}, nil)
 	if err != nil {
+		log.Error().Err(err).Str("op", "GenerateCode").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", err
 	}
+	log.Info().Str("op", "GenerateCode").Dur("dur", time.Since(start)).Msg("llm request")
 	return strings.TrimSpace(cleanCodeBlock(extractText(result))), nil
 }
 
-// CodeSegment is one logical part of the code with its narration (for synced voiceover).
+// CodeSegment is one logical part of the code (plain text) with its narration for voiceover.
+// Syntax highlighting is applied server-side; JSON uses short keys (c=code, n=narration).
 type CodeSegment struct {
-	Code      string
-	Narration string
+	Code      string `json:"c"`
+	Narration string `json:"n"`
 }
 
-// GenerateCodeSegments returns code split into logical segments, each with a narration line that describes that part (for synced narration).
-func (c *Client) GenerateCodeSegments(ctx context.Context, spec, language string) ([]CodeSegment, error) {
+// segmentsSchema returns the JSON schema for structured output: array of { c: code, n: narration }.
+func segmentsSchema() *genai.Schema {
+	return &genai.Schema{
+		Type: genai.TypeArray,
+		Items: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"c": {
+					Type:        genai.TypeString,
+					Description: "Plain source code for this segment (imports, one function, or a logical block). Preserve exact formatting, indentation, and newlines.",
+				},
+				"n": {
+					Type:        genai.TypeString,
+					Description: "One or two short sentences for a voiceover explaining this segment.",
+				},
+			},
+			Required: []string{"c", "n"},
+		},
+	}
+}
+
+// GenerateCodeSegments returns code split into logical segments (plain code + narration) and the raw JSON from the LLM.
+// Highlighting is done server-side with Chroma; the LLM only outputs correct source code.
+func (c *Client) GenerateCodeSegments(ctx context.Context, spec, language string) ([]CodeSegment, string, error) {
 	prompt := fmt.Sprintf(`Generate source code that fulfills this spec. Language: %s
 
 Spec: %s
 
-Split the code into 3 to 8 logical segments (e.g. imports, then each function or logical block). Preserve indentation: every line in each segment must keep its exact leading spaces/tabs.
+Split the code into 3–8 logical segments (e.g. imports, then each function or type, or logical blocks).
+Output valid, well-formatted source code. Syntax highlighting will be applied automatically.
 
-Wrap each syntax token with short tags (saves tokens). Use only: [[x]]content[[/x]] where x is one of: k=keyword, s=string, c=comment, n=number, f=function, o=operator, p=punctuation, v=variable. Do not put [[ or ]] inside content. Example: [[k]]function[[/k]] [[v]]add[[/v]]() { [[k]]return[[/k]] [[n]]1[[/n]] [[o]]+[[/o]] [[n]]2[[/n]]; } For operators like := or <- use [[o]]:=[[/o]] and [[o]]<-[[/o]] (whole operator inside one tag).
+Each segment has:
+- "c": plain source code for this segment (exact characters, correct syntax, proper indentation and newlines).
+- "n": one or two short sentences for a voiceover explaining this segment.
 
-For each segment output exactly this format, no other text:
+Rules:
+- Output only valid %s code. No markdown, no code fences.
+- Preserve exact indentation (tabs or spaces) and newlines.
+- Each segment should be self-contained (e.g. one or more complete declarations).`, language, spec, language)
 
----SEGMENT---
-<tagged code for this segment only, with indentation and [[type]]...[[/type]] wrappers>
----NARRATION---
-<one or two short sentences describing what this segment does, for a voiceover>
----END---
-
-Repeat ---SEGMENT--- / ---NARRATION--- / ---END--- for each segment. Output only the tagged code and narration. No markdown fences.`, language, spec)
-
+	start := time.Now()
+	cfg := &genai.GenerateContentConfig{
+		ResponseMIMEType: "application/json",
+		ResponseSchema:   segmentsSchema(),
+	}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
+	}, cfg)
 	if err != nil {
-		return nil, err
+		log.Error().Err(err).Str("op", "GenerateCodeSegments").Dur("dur", time.Since(start)).Msg("llm request")
+		return nil, "", err
 	}
+	log.Info().Str("op", "GenerateCodeSegments").Dur("dur", time.Since(start)).Msg("llm request")
 	text := extractText(result)
-	segments := parseSegments(text)
-	return segments, nil
+	segments, err := parseSegmentsJSON(text)
+	if err != nil {
+		return nil, text, err
+	}
+	return segments, text, nil
 }
 
 // GenerateWrappingNarration returns a short closing voiceover that summarizes what was built (no code, narration only).
@@ -152,45 +201,38 @@ Spec: %s
 Language: %s
 
 Output only the narration text, nothing else.`, spec, language)
+	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
 	}, nil)
 	if err != nil {
+		log.Error().Err(err).Str("op", "GenerateWrappingNarration").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", err
 	}
+	log.Info().Str("op", "GenerateWrappingNarration").Dur("dur", time.Since(start)).Msg("llm request")
 	return strings.TrimSpace(extractText(result)), nil
 }
 
-func parseSegments(text string) []CodeSegment {
-	var out []CodeSegment
+func parseSegmentsJSON(text string) ([]CodeSegment, error) {
 	text = strings.TrimSpace(text)
-	for {
-		segStart := strings.Index(text, "---SEGMENT---")
-		if segStart < 0 {
-			break
-		}
-		text = text[segStart+13:]
-		narStart := strings.Index(text, "---NARRATION---")
-		if narStart < 0 {
-			break
-		}
-		code := strings.TrimRight(text[:narStart], " \t\n\r")
-		text = text[narStart+15:]
-		endIdx := strings.Index(text, "---END---")
-		if endIdx < 0 {
-			break
-		}
-		narration := strings.TrimSpace(text[:endIdx])
-		text = strings.TrimSpace(text[endIdx+9:])
-		if code != "" || narration != "" {
-			out = append(out, CodeSegment{Code: code, Narration: narration})
-		}
+	// The schema returns a top-level array.
+	var segments []CodeSegment
+	if err := json.Unmarshal([]byte(text), &segments); err != nil {
+		return nil, fmt.Errorf("parse segments JSON: %w\nraw: %.500s", err, text)
 	}
-	return out
+	return segments, nil
 }
 
 // GenerateCodeStream yields code text chunks via the given callback. Each chunk is a delta; full code can be built by concatenation.
 func (c *Client) GenerateCodeStream(ctx context.Context, spec, language string, yield func(chunk string) error) (fullCode string, err error) {
+	start := time.Now()
+	defer func() {
+		ev := log.Info().Str("op", "GenerateCodeStream").Dur("dur", time.Since(start))
+		if err != nil {
+			ev = log.Error().Err(err).Str("op", "GenerateCodeStream").Dur("dur", time.Since(start))
+		}
+		ev.Msg("llm request")
+	}()
 	prompt := fmt.Sprintf(`Generate full source code that fulfills this spec. Language: %s
 
 Spec: %s
@@ -216,7 +258,15 @@ Output only the code, no markdown code fences or explanation.`, language, spec)
 }
 
 // GenerateAudioStream uses REST TTS (response_modalities: ["audio"]) to generate speech from script and yields base64-encoded PCM chunks (same format as Live API for the frontend).
-func (c *Client) GenerateAudioStream(ctx context.Context, ttsModel, script string, yield func(base64Chunk string) error) error {
+func (c *Client) GenerateAudioStream(ctx context.Context, ttsModel, script string, yield func(base64Chunk string) error) (err error) {
+	start := time.Now()
+	defer func() {
+		ev := log.Info().Str("op", "GenerateAudioStream").Str("model", ttsModel).Dur("dur", time.Since(start))
+		if err != nil {
+			ev = log.Error().Err(err).Str("op", "GenerateAudioStream").Str("model", ttsModel).Dur("dur", time.Since(start))
+		}
+		ev.Msg("llm request")
+	}()
 	if ttsModel == "" {
 		ttsModel = "gemini-2.5-flash-preview-tts"
 	}
@@ -282,12 +332,15 @@ Respond in this exact format only (no other text):
 <unified diff for the code change, e.g. diff -u style>
 ---END UNIFIED DIFF---`, currentCSS, currentCode, userMessage, language)
 
+	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
 	}, nil)
 	if err != nil {
+		log.Error().Err(err).Str("op", "GenerateChange").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", "", "", err
 	}
+	log.Info().Str("op", "GenerateChange").Dur("dur", time.Since(start)).Msg("llm request")
 	text := extractText(result)
 	newCSS, newCode, unifiedDiff = parseChangeResponse(text)
 	return newCSS, newCode, unifiedDiff, nil
