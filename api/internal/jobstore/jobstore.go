@@ -48,15 +48,19 @@ func NewClient(ctx context.Context, opts ClientOptions) (*Client, error) {
 	if opts.AccessKey != "" && opts.SecretKey != "" {
 		cfg.Credentials = credentials.NewStaticCredentialsProvider(opts.AccessKey, opts.SecretKey, "")
 	}
+	s3ClientOptions := []func(*s3.Options){}
 	if opts.Endpoint != "" {
 		endpoint := strings.TrimSuffix(opts.Endpoint, "/")
-		cfg.EndpointResolverWithOptions = aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-			return aws.Endpoint{URL: endpoint}, nil
+		// Custom S3-compatible endpoints (e.g. MinIO) usually require path-style
+		// addressing: endpoint/bucket/key instead of bucket.endpoint/key.
+		s3ClientOptions = append(s3ClientOptions, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+			o.UsePathStyle = true
 		})
 	}
 	return &Client{
 		bucket: opts.Bucket,
-		client: s3.NewFromConfig(cfg),
+		client: s3.NewFromConfig(cfg, s3ClientOptions...),
 	}, nil
 }
 
