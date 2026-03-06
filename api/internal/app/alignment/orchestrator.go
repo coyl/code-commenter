@@ -57,7 +57,8 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	spec, narration, err := o.Generation.GenerateTaskSpec(ctx, req.Task, req.Language)
 	log.Info().Str("phase", "spec").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 	if err != nil {
-		return "", sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "spec: " + err.Error()}))
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "spec: " + err.Error()}))
+		return "", err
 	}
 	if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "spec", Spec: spec, Narration: narration})); err != nil {
 		return "", err
@@ -65,7 +66,8 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 
 	css, err := o.Generation.GenerateCSS(ctx, spec, req.Language)
 	if err != nil {
-		return "", sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "css: " + err.Error()}))
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "css: " + err.Error()}))
+		return "", err
 	}
 	if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "css", CSS: css})); err != nil {
 		return "", err
@@ -74,7 +76,8 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 
 	segments, rawSegmentsJSON, err := o.Generation.GenerateCodeSegments(ctx, spec, req.Language)
 	if err != nil {
-		return "", sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "segments: " + err.Error()}))
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "segments: " + err.Error()}))
+		return "", err
 	}
 	log.Info().Str("phase", "segments").Int("n", len(segments)).Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
@@ -133,7 +136,8 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 
 	aligned, err := o.Aligner.Align(segmentEntries, audioByIndex)
 	if err != nil {
-		return "", sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "align: " + err.Error()}))
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "align: " + err.Error()}))
+		return "", err
 	}
 	for _, item := range aligned {
 		if err := sink.Emit(o.event(jobID, ports.StreamEvent{
