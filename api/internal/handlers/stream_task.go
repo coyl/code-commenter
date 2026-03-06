@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"html"
 	"net/http"
 	"net/url"
@@ -25,6 +26,8 @@ type StreamTaskRequest struct {
 	Task     string `json:"task"`
 	Language string `json:"language"`
 }
+
+const s3UploadTimeout = 90 * time.Second
 
 // HandleStreamTask runs the full pipeline (spec → CSS → code segments with synced narration); each segment sends code + narration then TTS for that narration.
 func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, ttsModel string, jobStore *jobstore.Client) http.HandlerFunc {
@@ -283,8 +286,15 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 				}
 				segmentAudio = append(segmentAudio, wrapPcm)
 			}
-			if err := jobStore.UploadJob(ctx, jobID, req.Task, rawSegmentsJSON, fullHTML.String(), codePlain, segmentsStored, segmentAudio); err != nil {
-				log.Error().Err(err).Str("job", jobID).Msg("S3 upload failed")
+			uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), s3UploadTimeout)
+			defer cancelUpload()
+			if err := jobStore.UploadJob(uploadCtx, jobID, req.Task, rawSegmentsJSON, fullHTML.String(), codePlain, segmentsStored, segmentAudio); err != nil {
+				ev := log.Error().Err(err).Str("job", jobID).Dur("timeout", s3UploadTimeout)
+				if errors.Is(err, context.DeadlineExceeded) {
+					ev.Msg("S3 upload timed out")
+				} else {
+					ev.Msg("S3 upload failed")
+				}
 			}
 		}
 
