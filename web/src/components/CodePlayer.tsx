@@ -10,14 +10,9 @@ import React, {
 } from "react";
 import { usePCMPlayer } from "@/lib/audio";
 import { getHTMLChunks, typingSpeedFor80Percent } from "@/lib/codePlayer";
+import type { Segment } from "@/domain/stream";
 
-export type Segment = {
-  index: number;
-  code: string;
-  codePlain: string;
-  narration: string;
-  audioChunks: string[];
-};
+export type { Segment };
 
 export type CodePlayerRef = {
   playSegment: (i: number) => void;

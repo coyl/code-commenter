@@ -1,65 +1,23 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import CodePlayer, { type Segment } from "@/components/CodePlayer";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-
-type JobData = {
-  prompt: string;
-  rawJson: string;
-  fullCode: string;
-  segments: Array<{
-    code: string;
-    codePlain: string;
-    narration: string;
-    audioChunks: string[];
-  }>;
-};
+import CodePlayer from "@/components/CodePlayer";
+import type { Segment } from "@/domain/stream";
+import { useJob } from "@/features/job/useJob";
 
 export default function JobPage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? params.id : "";
-  const [job, setJob] = useState<JobData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const id = typeof params.id === "string" ? params.id : null;
+  const { job, loading, error } = useJob(id);
   const [displayedCode, setDisplayedCode] = useState("");
   const [showPrompt, setShowPrompt] = useState(false);
 
-  useEffect(() => {
-    if (!id) {
-      setLoading(false);
-      setError("Missing job id");
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetch(`${API_BASE}/jobs/${id}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(res.status === 404 ? "Job not found" : "Failed to load job");
-        return res.json();
-      })
-      .then((data: JobData) => {
-        if (!cancelled) {
-          setJob(data);
-          setDisplayedCode("");
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
-  const segments: Segment[] = (job?.segments ?? []).map((s, i) => ({ ...s, index: i }));
+  const segments: Segment[] = (job?.segments ?? []).map((s, i) => ({
+    ...s,
+    index: i,
+  }));
 
   if (loading) {
     return (

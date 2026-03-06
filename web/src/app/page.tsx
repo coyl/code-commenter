@@ -1,34 +1,12 @@
 "use client";
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
-import CodePlayer, { type CodePlayerRef, type Segment as CodePlayerSegment } from "@/components/CodePlayer";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import CodePlayer, { type CodePlayerRef } from "@/components/CodePlayer";
 import { usePCMPlayer } from "@/lib/audio";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-
-function getWsBase(): string {
-  if (typeof window === "undefined") return "";
-  const u = new URL(API_BASE);
-  u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
-  return u.origin;
-}
-
-type TaskResponse = {
-  id: string;
-  css: string;
-  code: string;
-  spec?: string;
-  narration?: string;
-  voiceoverUrl?: string;
-};
-
-type ChangeResponse = {
-  css: string;
-  code: string;
-  unifiedDiff: string;
-};
-
-type Segment = CodePlayerSegment;
+import type { Segment } from "@/domain/stream";
+import { useStreamTask } from "@/features/stream/useStreamTask";
+import { useTask } from "@/features/task/useTask";
+import { useChange } from "@/features/change/useChange";
 
 export default function Home() {
   const [task, setTask] = useState("");
@@ -40,21 +18,47 @@ export default function Home() {
   const [narration, setNarration] = useState("");
   const [changeMessage, setChangeMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [changing, setChanging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const styleElRef = useRef<HTMLStyleElement | null>(null);
-  const streamCodeBufferRef = useRef("");
-  const pendingSegmentRef = useRef<{ code: string; codePlain: string; narration: string } | null>(null);
-  const pendingAudioChunksRef = useRef<string[]>([]);
-  const newSegmentIndexRef = useRef<number | null>(null);
-  const streamEndedRef = useRef(false);
-  const codePlayerRef = useRef<CodePlayerRef | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [showRawDebug, setShowRawDebug] = useState(false);
   const [rawJsonOutput, setRawJsonOutput] = useState("");
+  const styleElRef = useRef<HTMLStyleElement | null>(null);
+  const streamEndedRef = useRef(false);
+  const newSegmentIndexRef = useRef<number | null>(null);
+  const codePlayerRef = useRef<CodePlayerRef | null>(null);
   const { stop: stopAudio, unlock: unlockAudio } = usePCMPlayer();
 
-  // Inject dynamic CSS into the page
+  const streamCallbacks = useMemo(
+    () => ({
+      onCss: setCss,
+      onCode: setCode,
+      onSegments: setSegments,
+      onSessionId: setSessionId,
+      onNarration: setNarration,
+      onRawJson: setRawJsonOutput,
+      onError: setError,
+      onLoading: setLoading,
+      onStreamEnded: (ended: boolean) => {
+        streamEndedRef.current = ended;
+      },
+      onNewSegmentIndex: (idx: number | null) => {
+        newSegmentIndexRef.current = idx;
+      },
+      stopAudio,
+      unlockAudio,
+    }),
+    [stopAudio, unlockAudio]
+  );
+  const { runStream } = useStreamTask(streamCallbacks);
+  const { runTask, error: taskError, clearError: clearTaskError } = useTask();
+  const { applyChange, changing, error: changeError, clearError: clearChangeError } = useChange();
+
+  const clearAllErrors = () => {
+    setError(null);
+    clearTaskError();
+    clearChangeError();
+  };
+
   useEffect(() => {
     if (!css) return;
     let el = document.getElementById("dynamic-theme") as HTMLStyleElement | null;
@@ -67,7 +71,6 @@ export default function Home() {
     el.textContent = css;
   }, [css]);
 
-  // When a new segment is added during streaming, tell CodePlayer to play it if it was waiting.
   useEffect(() => {
     const idx = newSegmentIndexRef.current;
     if (idx === null) return;
@@ -75,155 +78,26 @@ export default function Home() {
     if (segments.length > idx) codePlayerRef.current?.playSegment(idx);
   }, [segments]);
 
-  // Streaming generate: just-in-time code + voice
-  const submitTaskStream = useCallback(() => {
+  const submitTaskStream = () => {
     if (!task.trim()) return;
-    setError(null);
-    setLoading(true);
-    setCss("");
-    setCode("");
+    clearAllErrors();
     setDisplayedCode("");
-    setNarration("");
-    setSegments([]);
-    setRawJsonOutput("");
-    streamEndedRef.current = false;
-    newSegmentIndexRef.current = null;
-    pendingSegmentRef.current = null;
-    pendingAudioChunksRef.current = [];
-    streamCodeBufferRef.current = "";
-    stopAudio();
-    unlockAudio();
+    runStream(task.trim(), language);
+  };
 
-    const wsBase = getWsBase();
-    if (!wsBase) {
-      setError("Cannot determine WebSocket URL");
-      setLoading(false);
-      return;
-    }
-    const ws = new WebSocket(`${wsBase}/task/stream`);
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ task: task.trim(), language }));
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data as string);
-        switch (msg.type) {
-          case "job_started":
-            break;
-          case "spec":
-            setNarration(msg.narration || "");
-            break;
-          case "css":
-            setCss(msg.css || "");
-            break;
-          case "segment": {
-            const segCode = msg.code ?? "";
-            const segPlain = msg.codePlain ?? "";
-            const segNarration = msg.narration ?? "";
-            const pending = pendingSegmentRef.current;
-            const pendingChunks = pendingAudioChunksRef.current;
-            if (pending) {
-              const completedSeg: Segment = {
-                index: 0,
-                code: pending.code,
-                codePlain: pending.codePlain,
-                narration: pending.narration,
-                audioChunks: [...pendingChunks],
-              };
-              setSegments((prev) => {
-                const newIndex = prev.length;
-                newSegmentIndexRef.current = newIndex;
-                const newSeg = { ...completedSeg, index: newIndex };
-                return [...prev, newSeg];
-              });
-            }
-            pendingSegmentRef.current = { code: segCode, codePlain: segPlain, narration: segNarration };
-            pendingAudioChunksRef.current = [];
-            break;
-          }
-          case "audio":
-            if (msg.data) pendingAudioChunksRef.current.push(msg.data);
-            break;
-          case "code_chunk":
-            streamCodeBufferRef.current += msg.chunk || "";
-            setCode(streamCodeBufferRef.current);
-            break;
-          case "code_done": {
-            const pending = pendingSegmentRef.current;
-            const pendingChunks = pendingAudioChunksRef.current;
-            if (pending) {
-              const lastSeg: Segment = {
-                index: 0,
-                code: pending.code,
-                codePlain: pending.codePlain,
-                narration: pending.narration,
-                audioChunks: [...pendingChunks],
-              };
-              setSegments((prev) => {
-                const newIndex = prev.length;
-                newSegmentIndexRef.current = newIndex;
-                const newSeg = { ...lastSeg, index: newIndex };
-                return [...prev, newSeg];
-              });
-            }
-            pendingSegmentRef.current = null;
-            pendingAudioChunksRef.current = [];
-            const full = (msg.code || "").trim();
-            setCode(full);
-            streamCodeBufferRef.current = full;
-            if (typeof msg.rawJson === "string") setRawJsonOutput(msg.rawJson);
-            break;
-          }
-          case "session":
-            streamEndedRef.current = true;
-            setSessionId(msg.id || null);
-            setLoading(false);
-            ws.close();
-            break;
-          case "error":
-            setError(msg.error || "Stream error");
-            setLoading(false);
-            ws.close();
-            break;
-          default:
-            break;
-        }
-      } catch {
-        // ignore non-JSON
-      }
-    };
-    ws.onclose = () => {
-      setLoading((prev) => (prev ? false : prev));
-    };
-    ws.onerror = () => {
-      setError("WebSocket error");
-      setLoading(false);
-    };
-  }, [task, language, stopAudio, unlockAudio]);
-
-  // Fallback: non-streaming POST /task (no voice)
   const submitTask = async () => {
     if (!task.trim()) return;
-    setError(null);
+    clearAllErrors();
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/task`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task: task.trim(), language }),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || res.statusText);
-      }
-      const data: TaskResponse = await res.json();
+      const data = await runTask(task.trim(), language || "javascript");
       setSessionId(data.id);
       setCss(data.css);
       setCode(data.code);
       setDisplayedCode(data.code);
-      setNarration(data.narration || "");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed");
+      setNarration(data.narration ?? "");
+    } catch {
+      // error already set by useTask
     } finally {
       setLoading(false);
     }
@@ -231,29 +105,17 @@ export default function Home() {
 
   const submitChange = async () => {
     if (!sessionId || !changeMessage.trim()) return;
-    setError(null);
-    setChanging(true);
-    try {
-      const res = await fetch(`${API_BASE}/task/${sessionId}/change`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: changeMessage.trim() }),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || res.statusText);
-      }
-      const data: ChangeResponse = await res.json();
+    clearAllErrors();
+    const data = await applyChange(sessionId, changeMessage.trim());
+    if (data) {
       setCss(data.css);
       setCode(data.code);
       setDisplayedCode(data.code);
       setChangeMessage("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Change failed");
-    } finally {
-      setChanging(false);
     }
   };
+
+  const displayError = error ?? changeError ?? taskError ?? null;
 
   return (
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
@@ -298,9 +160,9 @@ export default function Home() {
         </div>
       </section>
 
-      {error && (
+      {displayError && (
         <div className="mb-4 p-3 rounded bg-red-900/30 border border-red-700 text-red-200 text-sm">
-          {error}
+          {displayError}
         </div>
       )}
 
@@ -315,7 +177,6 @@ export default function Home() {
             loading={loading}
             streamEndedRef={streamEndedRef}
           />
-          {/* Foldable debug: raw segments JSON from LLM */}
           {(code || segments.length > 0) && (
             <div className="mt-4 border border-zinc-700 rounded-lg overflow-hidden bg-zinc-900/50">
               <button
