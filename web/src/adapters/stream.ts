@@ -47,7 +47,11 @@ function createConnection(ws: WebSocket): StreamConnection {
   const messageHandlers: Array<(event: StreamEvent) => void> = [];
   const closeHandlers: Array<() => void> = [];
   const errorHandlers: Array<(err: Event) => void> = [];
+  const sendQueue: string[] = [];
 
+  ws.onopen = () => {
+    for (const msg of sendQueue.splice(0)) ws.send(msg);
+  };
   ws.onmessage = (ev) => {
     const raw = typeof ev.data === "string" ? ev.data : "";
     const event = parseMessage(raw);
@@ -58,7 +62,12 @@ function createConnection(ws: WebSocket): StreamConnection {
 
   return {
     send(data: unknown) {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
+      const msg = JSON.stringify(data);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        sendQueue.push(msg);
+      }
     },
     onMessage(handler: (event: StreamEvent) => void) {
       messageHandlers.push(handler);
