@@ -34,12 +34,7 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 			_ = ws.WriteJSON(map[string]string{"type": "error", "error": err.Error()})
 			return
 		}
-		if req.Task == "" {
-			req.Task = "a simple hello world"
-		}
-		if req.Language == "" {
-			req.Language = "javascript"
-		}
+		// Defaults for task/language are applied in orchestrator.Run
 
 		sink := wsadapter.Sink{Conn: ws}
 		_, _ = orchestrator.Run(r.Context(), appalignment.StreamRequest{
