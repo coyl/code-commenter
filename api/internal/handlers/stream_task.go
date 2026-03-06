@@ -141,16 +141,23 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 		}
 
 		lexerLang := normalizeLexerLanguage(req.Language)
+		// Precompute highlighted HTML once per segment; reused for WebSocket, fullHTML, and S3.
+		segmentHTMLs := make([]string, len(segments))
+		for i, seg := range segments {
+			html, err := highlight.CodeToHTML(seg.Code, lexerLang)
+			if err != nil {
+				html = htmlEscapeCode(seg.Code)
+			}
+			segmentHTMLs[i] = html
+		}
+
 		var fullPlain strings.Builder
 		for i, seg := range segments {
 			if i > 0 {
 				fullPlain.WriteString("\n")
 			}
 			fullPlain.WriteString(seg.Code)
-			segHTML, err := highlight.CodeToHTML(seg.Code, lexerLang)
-			if err != nil {
-				segHTML = htmlEscapeCode(seg.Code)
-			}
+			segHTML := segmentHTMLs[i]
 			segCodePlain := seg.Code
 			if i > 0 {
 				segHTML = "\n" + segHTML
@@ -214,15 +221,11 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 		}
 		codePlain := strings.TrimSpace(fullPlain.String())
 		var fullHTML strings.Builder
-		for i, seg := range segments {
+		for i := range segments {
 			if i > 0 {
 				fullHTML.WriteString("\n")
 			}
-			segHTML, err := highlight.CodeToHTML(seg.Code, lexerLang)
-			if err != nil {
-				segHTML = htmlEscapeCode(seg.Code)
-			}
-			fullHTML.WriteString(segHTML)
+			fullHTML.WriteString(segmentHTMLs[i])
 		}
 		if !send(map[string]interface{}{"type": "code_done", "code": fullHTML.String(), "codePlain": codePlain, "rawJson": rawSegmentsJSON}) {
 			return
@@ -246,10 +249,7 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			segmentsStored := make([]jobstore.SegmentStored, 0, len(segments)+1)
 			segmentAudio := make([][]byte, 0, len(segments)+1)
 			for i, seg := range segments {
-				segHTML, _ := highlight.CodeToHTML(seg.Code, lexerLang)
-				if segHTML == "" {
-					segHTML = htmlEscapeCode(seg.Code)
-				}
+				segHTML := segmentHTMLs[i]
 				if i > 0 {
 					segHTML = "\n" + segHTML
 				}
