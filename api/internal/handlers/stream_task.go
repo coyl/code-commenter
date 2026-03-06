@@ -204,18 +204,13 @@ func HandleStreamTask(gc *gemini.Client, st *store.Store, apiKey, liveModel, tts
 			}) {
 				return
 			}
-			wrapCh := make(chan ttsResult, 1)
-			go func() {
-				chunks, err := generateAudioChunks(ctx, gc, ttsModel, wrapping)
-				wrapCh <- ttsResult{Index: len(segments), Chunks: chunks, Err: err}
-			}()
-			res := <-wrapCh
-			if res.Err != nil {
-				log.Error().Err(res.Err).Msg("TTS wrapping error")
-				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + res.Err.Error()})
+			chunks, err := generateAudioChunks(ctx, gc, ttsModel, wrapping)
+			if err != nil {
+				log.Error().Err(err).Msg("TTS wrapping error")
+				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "TTS: " + err.Error()})
 			} else {
-				wrapAudioChunks = res.Chunks
-				for _, b64 := range res.Chunks {
+				wrapAudioChunks = chunks
+				for _, b64 := range chunks {
 					if !send(map[string]interface{}{"type": "audio", "data": b64}) {
 						return
 					}
