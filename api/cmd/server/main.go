@@ -8,10 +8,17 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	appalignment "code-commenter/api/internal/app/alignment"
+	geminiadapter "code-commenter/api/internal/adapters/gemini"
+	highlightadapter "code-commenter/api/internal/adapters/highlight"
+	jobstoreadapter "code-commenter/api/internal/adapters/jobstore"
+	storeadapter "code-commenter/api/internal/adapters/store"
 	"code-commenter/api/internal/config"
+	domainalignment "code-commenter/api/internal/domain/alignment"
 	"code-commenter/api/internal/gemini"
 	"code-commenter/api/internal/handlers"
 	"code-commenter/api/internal/jobstore"
+	"code-commenter/api/internal/ports"
 	"code-commenter/api/internal/store"
 )
 
@@ -32,6 +39,9 @@ func main() {
 	defer func() { _ = gc.Close() }()
 
 	st := store.New()
+	sessionRepo := &storeadapter.Adapter{Store: st}
+	genAdapter := &geminiadapter.Adapter{Client: gc, TTSModel: cfg.TTSModel}
+	rendererAdapter := highlightadapter.Adapter{}
 
 	var jobStore *jobstore.Client
 	if cfg.S3Bucket != "" {
@@ -46,14 +56,26 @@ func main() {
 			log.Fatal().Err(err).Msg("jobstore S3 client")
 		}
 	}
+	var jobRepository ports.JobRepository = jobstoreadapter.NoopAdapter{}
+	if jobStore != nil {
+		jobRepository = &jobstoreadapter.Adapter{Store: jobStore}
+	}
+
+	orchestrator := &appalignment.StreamOrchestrator{
+		Generation: genAdapter,
+		Audio:      genAdapter,
+		Renderer:   rendererAdapter,
+		Sessions:   sessionRepo,
+		Jobs:       jobRepository,
+		Aligner:    domainalignment.Service{},
+	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /task", handlers.HandleTask(gc, st))
-	// jobStore may be nil when S3 is not configured; stream task skips S3 upload in that case.
-	mux.HandleFunc("GET /task/stream", handlers.HandleStreamTask(gc, st, cfg.GeminiAPIKey, cfg.LiveAPIModel, cfg.TTSModel, jobStore))
-	mux.HandleFunc("POST /task/{id}/change", handlers.HandleChange(gc, st))
-	if jobStore != nil {
-		mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobStore))
+	mux.HandleFunc("POST /task", handlers.HandleTask(genAdapter, sessionRepo))
+	mux.HandleFunc("GET /task/stream", handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey))
+	mux.HandleFunc("POST /task/{id}/change", handlers.HandleChange(genAdapter, sessionRepo))
+	if jobRepository.IsEnabled() {
+		mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobRepository))
 	}
 	mux.HandleFunc("GET /live", handlers.HandleLive(cfg.GeminiAPIKey, cfg.LiveAPIModel))
 
