@@ -42,8 +42,24 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// narrationLanguageLabel returns a display name for the narration language (for LLM prompts).
+func narrationLanguageLabel(lang string) string {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "german":
+		return "German"
+	case "spanish":
+		return "Spanish"
+	case "italian":
+		return "Italian"
+	case "chinese":
+		return "Chinese (Simplified)"
+	default:
+		return "English"
+	}
+}
+
 // GenerateTaskSpec asks Gemini to turn a task description into a structured spec and optional narration script.
-func (c *Client) GenerateTaskSpec(ctx context.Context, task, language string) (spec, narrationScript string, err error) {
+func (c *Client) GenerateTaskSpec(ctx context.Context, task, language, narrationLang string) (spec, narrationScript string, err error) {
 	start := time.Now()
 	defer func() {
 		ev := log.Info().Str("op", "GenerateTaskSpec").Dur("dur", time.Since(start))
@@ -52,7 +68,8 @@ func (c *Client) GenerateTaskSpec(ctx context.Context, task, language string) (s
 		}
 		ev.Msg("llm request")
 	}()
-	prompt := fmt.Sprintf(`You are a coding assistant. The user will describe a coding task. Output a short structured spec (what to build) and an optional narration script for a voiceover that explains the code in 2-4 sentences.
+	narrationLabel := narrationLanguageLabel(narrationLang)
+	prompt := fmt.Sprintf(`You are a coding assistant. The user will describe a coding task. Output a short structured spec (what to build) and an optional narration script for a voiceover that explains the code in 2-4 sentences. Write the NARRATION in %s.
 
 Task: %s
 Language: %s
@@ -62,7 +79,7 @@ SPEC:
 <one or two sentence spec>
 
 NARRATION:
-<2-4 sentences for voiceover>`, task, language)
+<2-4 sentences for voiceover in %s>`, narrationLabel, task, language, narrationLabel)
 
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
@@ -141,7 +158,7 @@ func segmentsSchema() *genai.Schema {
 			Properties: map[string]*genai.Schema{
 				"c": {
 					Type:        genai.TypeString,
-					Description: "Plain source code for this segment (imports, one function, or a logical block). Preserve exact formatting, indentation, and newlines.",
+					Description: "Plain source code for this segment: a few lines or one logical step (e.g. imports, one small function, or one part of a large function). Preserve exact formatting, indentation, and newlines.",
 				},
 				"n": {
 					Type:        genai.TypeString,
@@ -155,22 +172,26 @@ func segmentsSchema() *genai.Schema {
 
 // GenerateCodeSegments returns code split into logical segments (plain code + narration) and the raw JSON from the LLM.
 // Highlighting is done server-side with Chroma; the LLM only outputs correct source code.
-func (c *Client) GenerateCodeSegments(ctx context.Context, spec, language string) ([]CodeSegment, string, error) {
+func (c *Client) GenerateCodeSegments(ctx context.Context, spec, language, narrationLang string) ([]CodeSegment, string, error) {
+	narrationLabel := narrationLanguageLabel(narrationLang)
 	prompt := fmt.Sprintf(`Generate source code that fulfills this spec. Language: %s
 
 Spec: %s
 
-Split the code into 3–8 logical segments (e.g. imports, then each function or type, or logical blocks).
+Split the code into at most 9 segments so each segment is small enough for a clear, focused narration.
+- Imports and top-level declarations: one segment each (or grouped if very small).
+- Small functions (e.g. under ~8 lines): one segment per function is fine.
+- Large functions: split into multiple segments (e.g. signature and setup, then main logic in steps, then return/cleanup) so the narration can explain details (parameters, loops, conditions, return value). Do not put an entire long function in one segment. If you would need more than 9 segments, group some logical blocks together to stay within 9.
 Output valid, well-formatted source code. Syntax highlighting will be applied automatically.
 
 Each segment has:
 - "c": plain source code for this segment (exact characters, correct syntax, proper indentation and newlines).
-- "n": one or two short sentences for a voiceover explaining this segment.
+- "n": one or two short sentences for a voiceover explaining this segment. Write the narration in %s.
 
 Rules:
 - Output only valid %s code. No markdown, no code fences.
 - Preserve exact indentation (tabs or spaces) and newlines.
-- Each segment should be self-contained (e.g. one or more complete declarations).`, language, spec, language)
+- Each segment should be self-contained (complete statements or a clear logical step).`, language, spec, narrationLabel, language)
 
 	start := time.Now()
 	cfg := &genai.GenerateContentConfig{
@@ -193,14 +214,66 @@ Rules:
 	return segments, text, nil
 }
 
-// GenerateWrappingNarration returns a short closing voiceover that summarizes what was built (no code, narration only).
-func (c *Client) GenerateWrappingNarration(ctx context.Context, spec, language string) (string, error) {
-	prompt := fmt.Sprintf(`Summarize in 2 to 4 short sentences what was built, for a closing voiceover. No code, no markdown.
+// FormatAndSegmentCode takes user-provided code and returns it with only indentation/newlines
+// beautified, split into logical segments with narration. The code logic and text must be preserved as-is.
+func (c *Client) FormatAndSegmentCode(ctx context.Context, code, language, narrationLang string) ([]CodeSegment, string, error) {
+	narrationLabel := narrationLanguageLabel(narrationLang)
+	prompt := fmt.Sprintf(`You are given raw source code. Your job is to:
+1. Preserve the code EXACTLY as-is: do not change any logic, identifiers, strings, or behavior.
+2. Only beautify: normalize indentation (consistent spaces or tabs) and newlines (trim trailing, consistent line endings).
+3. Split the result into at most 9 segments so each segment is small enough for a clear, focused narration.
+   - Imports and top-level declarations: one segment each (or grouped if very small).
+   - Small functions (e.g. under ~8 lines): one segment per function is fine.
+   - Large functions: split into multiple segments (e.g. signature and setup, main logic in steps, return/cleanup) so the narration can explain details. Do not put an entire long function in one segment. If you would need more than 9 segments, group some logical blocks together to stay within 9.
 
-Spec: %s
 Language: %s
 
-Output only the narration text, nothing else.`, spec, language)
+---CODE---
+%s
+---END CODE---
+
+Output a JSON array of segments. Each segment has:
+- "c": plain source code for this segment. Must be exactly the code from above with only indentation/newlines possibly normalized. No changes to logic or text.
+- "n": one or two short sentences for a voiceover explaining this segment. Write the narration in %s.
+
+Rules:
+- Do not add, remove, or alter any code logic. Only fix indentation and newlines.
+- Each segment should be self-contained (complete statements or a clear logical step).
+- Output only the JSON array, no other text.`, language, code, narrationLabel)
+
+	start := time.Now()
+	cfg := &genai.GenerateContentConfig{
+		ResponseMIMEType: "application/json",
+		ResponseSchema:   segmentsSchema(),
+	}
+	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
+		{Parts: []*genai.Part{{Text: prompt}}},
+	}, cfg)
+	if err != nil {
+		log.Error().Err(err).Str("op", "FormatAndSegmentCode").Dur("dur", time.Since(start)).Msg("llm request")
+		return nil, "", err
+	}
+	log.Info().Str("op", "FormatAndSegmentCode").Dur("dur", time.Since(start)).Msg("llm request")
+	text := extractText(result)
+	segments, err := parseSegmentsJSON(text)
+	if err != nil {
+		return nil, text, err
+	}
+	return segments, text, nil
+}
+
+// GenerateWrappingNarration returns a short closing voiceover that summarizes what was built (no code, narration only).
+func (c *Client) GenerateWrappingNarration(ctx context.Context, spec, language, narrationLang string) (string, error) {
+	narrationLabel := narrationLanguageLabel(narrationLang)
+	prompt := fmt.Sprintf(`Write a closing voiceover (3 to 5 short sentences) in %s. Do all of the following:
+1. Briefly summarize what was built.
+2. Point out the most important or interesting part of the code (e.g. the core logic, main function, or key pattern).
+3. Explain that part in one or two short sentences so the listener understands why it matters.
+
+No code snippets, no markdown. Output only the narration text, nothing else.
+
+Spec: %s
+Language: %s`, narrationLabel, spec, language)
 	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
@@ -210,6 +283,31 @@ Output only the narration text, nothing else.`, spec, language)
 		return "", err
 	}
 	log.Info().Str("op", "GenerateWrappingNarration").Dur("dur", time.Since(start)).Msg("llm request")
+	return strings.TrimSpace(extractText(result)), nil
+}
+
+// GenerateWrappingNarrationForUserCode returns a short closing voiceover for user-pasted code, in the requested narration language.
+func (c *Client) GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error) {
+	narrationLabel := narrationLanguageLabel(narrationLang)
+	prompt := fmt.Sprintf(`The following are short descriptions of segments of user-provided code (for a code walkthrough):
+
+%s
+
+Write a closing voiceover (3 to 5 short sentences) in %s. Do all of the following:
+1. Briefly summarize what the code does.
+2. Point out the most important or interesting part (e.g. the core logic, main function, or key pattern).
+3. Explain that part in one or two short sentences so the listener understands why it matters.
+
+No code snippets, no markdown. Output only the narration text, nothing else.`, segmentNarrationsSummary, narrationLabel)
+	start := time.Now()
+	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
+		{Parts: []*genai.Part{{Text: prompt}}},
+	}, nil)
+	if err != nil {
+		log.Error().Err(err).Str("op", "GenerateWrappingNarrationForUserCode").Dur("dur", time.Since(start)).Msg("llm request")
+		return "", err
+	}
+	log.Info().Str("op", "GenerateWrappingNarrationForUserCode").Dur("dur", time.Since(start)).Msg("llm request")
 	return strings.TrimSpace(extractText(result)), nil
 }
 
