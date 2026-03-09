@@ -41,13 +41,13 @@ type StreamOrchestrator struct {
 
 // Run executes the end-to-end stream flow and emits transport-neutral events.
 func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink ports.EventSink) (string, error) {
-	if req.Language == "" {
-		req.Language = "javascript"
-	}
 	if strings.TrimSpace(req.NarrationLanguage) == "" {
 		req.NarrationLanguage = "english"
 	}
 	userCodeMode := strings.TrimSpace(req.Code) != ""
+	if !userCodeMode && req.Language == "" {
+		req.Language = "javascript"
+	}
 	if !userCodeMode && req.Task == "" {
 		req.Task = "a simple hello world"
 	}
@@ -95,7 +95,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	var segments []ports.CodeSegment
 	var rawSegmentsJSON string
 	if userCodeMode {
-		segments, rawSegmentsJSON, err = o.Generation.FormatAndSegmentCode(ctx, strings.TrimSpace(req.Code), req.Language, req.NarrationLanguage)
+		segments, rawSegmentsJSON, err = o.Generation.FormatAndSegmentCode(ctx, strings.TrimSpace(req.Code), req.NarrationLanguage)
 	} else {
 		segments, rawSegmentsJSON, err = o.Generation.GenerateCodeSegments(ctx, spec, req.Language, req.NarrationLanguage)
 	}

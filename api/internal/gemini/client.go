@@ -10,7 +10,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"google.golang.org/genai"
-
 )
 
 // Client wraps Gemini 3.1 for task spec, CSS, code, and diff generation.
@@ -94,6 +93,10 @@ NARRATION:
 
 // GenerateCSS produces a single block of CSS for the code view/theme/layout and syntax highlighting.
 func (c *Client) GenerateCSS(ctx context.Context, spec, language string) (css string, err error) {
+	langHint := strings.TrimSpace(language)
+	if langHint == "" {
+		langHint = "any (language-agnostic)"
+	}
 	prompt := fmt.Sprintf(`Generate a single block of CSS for a code viewer page. The page shows code in a monospace editor with syntax highlighting. Language: %s. Context: %s
 
 Output only valid CSS, no markdown code fences. Include:
@@ -108,7 +111,7 @@ Output only valid CSS, no markdown code fences. Include:
   .token-operator  { color for operators: +, -, =, etc. }
   .token-punctuation { color for brackets, commas, semicolons }
   .token-variable  { color for variables and identifiers }
-Pick a cohesive color scheme (e.g. dark background with cyan/green/amber accents).`, language, spec)
+Pick a cohesive color scheme (e.g. dark/light background with cyan/green/amber accents).`, langHint, spec)
 
 	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
@@ -216,7 +219,8 @@ Rules:
 
 // FormatAndSegmentCode takes user-provided code and returns it with only indentation/newlines
 // beautified, split into logical segments with narration. The code logic and text must be preserved as-is.
-func (c *Client) FormatAndSegmentCode(ctx context.Context, code, language, narrationLang string) ([]CodeSegment, string, error) {
+// The LLM infers the programming language from the code; no language is passed.
+func (c *Client) FormatAndSegmentCode(ctx context.Context, code, narrationLang string) ([]CodeSegment, string, error) {
 	narrationLabel := narrationLanguageLabel(narrationLang)
 	prompt := fmt.Sprintf(`You are given raw source code. Your job is to:
 1. Preserve the code EXACTLY as-is: do not change any logic, identifiers, strings, or behavior.
@@ -226,7 +230,7 @@ func (c *Client) FormatAndSegmentCode(ctx context.Context, code, language, narra
    - Small functions (e.g. under ~8 lines): one segment per function is fine.
    - Large functions: split into multiple segments (e.g. signature and setup, main logic in steps, return/cleanup) so the narration can explain details. Do not put an entire long function in one segment. If you would need more than 9 segments, group some logical blocks together to stay within 9.
 
-Language: %s
+Infer the programming language from the code (e.g. JavaScript, Python, Go)
 
 ---CODE---
 %s
@@ -239,7 +243,7 @@ Output a JSON array of segments. Each segment has:
 Rules:
 - Do not add, remove, or alter any code logic. Only fix indentation and newlines.
 - Each segment should be self-contained (complete statements or a clear logical step).
-- Output only the JSON array, no other text.`, language, code, narrationLabel)
+- Output only the JSON array, no other text.`, code, narrationLabel)
 
 	start := time.Now()
 	cfg := &genai.GenerateContentConfig{

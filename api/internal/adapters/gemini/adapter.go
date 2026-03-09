@@ -40,8 +40,8 @@ func (a *Adapter) GenerateCodeSegments(ctx context.Context, spec, language, narr
 	return out, rawJSON, nil
 }
 
-func (a *Adapter) FormatAndSegmentCode(ctx context.Context, code, language, narrationLang string) ([]ports.CodeSegment, string, error) {
-	segments, rawJSON, err := a.Client.FormatAndSegmentCode(ctx, code, language, narrationLang)
+func (a *Adapter) FormatAndSegmentCode(ctx context.Context, code, narrationLang string) ([]ports.CodeSegment, string, error) {
+	segments, rawJSON, err := a.Client.FormatAndSegmentCode(ctx, code, narrationLang)
 	if err != nil {
 		return nil, rawJSON, err
 	}

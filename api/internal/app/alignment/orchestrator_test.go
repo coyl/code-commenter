@@ -25,7 +25,7 @@ func (f fakeGeneration) GenerateCode(context.Context, string, string) (string, e
 func (f fakeGeneration) GenerateCodeSegments(context.Context, string, string, string) ([]ports.CodeSegment, string, error) {
 	return f.segments, `[{"c":"code","n":"narration"}]`, nil
 }
-func (f fakeGeneration) FormatAndSegmentCode(context.Context, string, string, string) ([]ports.CodeSegment, string, error) {
+func (f fakeGeneration) FormatAndSegmentCode(context.Context, string, string) ([]ports.CodeSegment, string, error) {
 	return f.segments, `[{"c":"code","n":"narration"}]`, nil
 }
 func (f fakeGeneration) GenerateWrappingNarration(context.Context, string, string, string) (string, error) {

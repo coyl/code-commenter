@@ -97,7 +97,7 @@ export default function Home() {
     clearAllErrors();
     setDisplayedCode("");
     if (inputTab === "code") {
-      runStream("", language, narrationLanguage, userCode.trim());
+      runStream("", "", narrationLanguage, userCode.trim());
     } else {
       runStream(task.trim(), language, narrationLanguage);
     }

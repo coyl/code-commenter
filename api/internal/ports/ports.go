@@ -32,8 +32,8 @@ type GenerationPort interface {
 	GenerateCSS(ctx context.Context, spec, language string) (string, error)
 	GenerateCode(ctx context.Context, spec, language string) (string, error)
 	GenerateCodeSegments(ctx context.Context, spec, language, narrationLang string) ([]CodeSegment, string, error)
-	// FormatAndSegmentCode takes user-provided code, beautifies only indentation/newlines, and returns segments with narration.
-	FormatAndSegmentCode(ctx context.Context, code, language, narrationLang string) ([]CodeSegment, string, error)
+	// FormatAndSegmentCode takes user-provided code, beautifies only indentation/newlines, and returns segments with narration. Language is inferred by the LLM.
+	FormatAndSegmentCode(ctx context.Context, code, narrationLang string) ([]CodeSegment, string, error)
 	GenerateWrappingNarration(ctx context.Context, spec, language, narrationLang string) (string, error)
 	// GenerateWrappingNarrationForUserCode returns a short closing voiceover for user-pasted code (segmentNarrationsSummary is concatenated segment narrations).
 	GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error)
