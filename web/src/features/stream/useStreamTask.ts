@@ -27,7 +27,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
   const pendingRef = useRef<{ code: string; codePlain: string; narration: string } | null>(null);
   const pendingChunksRef = useRef<string[]>([]);
 
-  const runStream = useCallback((task: string, language: string) => {
+  const runStream = useCallback((task: string, language: string, narrationLanguage: string, userCode?: string) => {
     const {
         onCss,
         onCode,
@@ -140,7 +140,16 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
         onLoading(false);
       });
 
-      conn.send({ task: task.trim(), language });
+      const payload: { task?: string; language: string; code?: string; narration_language?: string } = {
+        language,
+        narration_language: narrationLanguage || "english",
+      };
+      if (userCode !== undefined && userCode.trim() !== "") {
+        payload.code = userCode.trim();
+      } else {
+        payload.task = task.trim();
+      }
+      conn.send(payload);
     },
     []
   );

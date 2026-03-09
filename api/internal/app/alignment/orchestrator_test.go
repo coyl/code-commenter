@@ -13,7 +13,7 @@ type fakeGeneration struct {
 	segments []ports.CodeSegment
 }
 
-func (f fakeGeneration) GenerateTaskSpec(context.Context, string, string) (string, string, error) {
+func (f fakeGeneration) GenerateTaskSpec(context.Context, string, string, string) (string, string, error) {
 	return "spec", "intro", nil
 }
 func (f fakeGeneration) GenerateCSS(context.Context, string, string) (string, error) {
@@ -22,10 +22,16 @@ func (f fakeGeneration) GenerateCSS(context.Context, string, string) (string, er
 func (f fakeGeneration) GenerateCode(context.Context, string, string) (string, error) {
 	return "code", nil
 }
-func (f fakeGeneration) GenerateCodeSegments(context.Context, string, string) ([]ports.CodeSegment, string, error) {
+func (f fakeGeneration) GenerateCodeSegments(context.Context, string, string, string) ([]ports.CodeSegment, string, error) {
 	return f.segments, `[{"c":"code","n":"narration"}]`, nil
 }
-func (f fakeGeneration) GenerateWrappingNarration(context.Context, string, string) (string, error) {
+func (f fakeGeneration) FormatAndSegmentCode(context.Context, string, string, string) ([]ports.CodeSegment, string, error) {
+	return f.segments, `[{"c":"code","n":"narration"}]`, nil
+}
+func (f fakeGeneration) GenerateWrappingNarration(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (f fakeGeneration) GenerateWrappingNarrationForUserCode(context.Context, string, string) (string, error) {
 	return "", nil
 }
 func (f fakeGeneration) GenerateChange(context.Context, string, string, string, string) (string, string, string, error) {

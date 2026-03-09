@@ -13,8 +13,8 @@ type Adapter struct {
 	TTSModel string
 }
 
-func (a *Adapter) GenerateTaskSpec(ctx context.Context, task, language string) (string, string, error) {
-	return a.Client.GenerateTaskSpec(ctx, task, language)
+func (a *Adapter) GenerateTaskSpec(ctx context.Context, task, language, narrationLang string) (string, string, error) {
+	return a.Client.GenerateTaskSpec(ctx, task, language, narrationLang)
 }
 
 func (a *Adapter) GenerateCSS(ctx context.Context, spec, language string) (string, error) {
@@ -25,8 +25,8 @@ func (a *Adapter) GenerateCode(ctx context.Context, spec, language string) (stri
 	return a.Client.GenerateCode(ctx, spec, language)
 }
 
-func (a *Adapter) GenerateCodeSegments(ctx context.Context, spec, language string) ([]ports.CodeSegment, string, error) {
-	segments, rawJSON, err := a.Client.GenerateCodeSegments(ctx, spec, language)
+func (a *Adapter) GenerateCodeSegments(ctx context.Context, spec, language, narrationLang string) ([]ports.CodeSegment, string, error) {
+	segments, rawJSON, err := a.Client.GenerateCodeSegments(ctx, spec, language, narrationLang)
 	if err != nil {
 		return nil, rawJSON, err
 	}
@@ -40,8 +40,27 @@ func (a *Adapter) GenerateCodeSegments(ctx context.Context, spec, language strin
 	return out, rawJSON, nil
 }
 
-func (a *Adapter) GenerateWrappingNarration(ctx context.Context, spec, language string) (string, error) {
-	return a.Client.GenerateWrappingNarration(ctx, spec, language)
+func (a *Adapter) FormatAndSegmentCode(ctx context.Context, code, language, narrationLang string) ([]ports.CodeSegment, string, error) {
+	segments, rawJSON, err := a.Client.FormatAndSegmentCode(ctx, code, language, narrationLang)
+	if err != nil {
+		return nil, rawJSON, err
+	}
+	out := make([]ports.CodeSegment, 0, len(segments))
+	for _, seg := range segments {
+		out = append(out, ports.CodeSegment{
+			Code:      seg.Code,
+			Narration: seg.Narration,
+		})
+	}
+	return out, rawJSON, nil
+}
+
+func (a *Adapter) GenerateWrappingNarration(ctx context.Context, spec, language, narrationLang string) (string, error) {
+	return a.Client.GenerateWrappingNarration(ctx, spec, language, narrationLang)
+}
+
+func (a *Adapter) GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error) {
+	return a.Client.GenerateWrappingNarrationForUserCode(ctx, segmentNarrationsSummary, narrationLang)
 }
 
 func (a *Adapter) GenerateChange(ctx context.Context, currentCSS, currentCode, userMessage, language string) (string, string, string, error) {

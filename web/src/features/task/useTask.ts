@@ -2,17 +2,18 @@
 
 import { useCallback, useState } from "react";
 import { fetchApiAdapter } from "@/adapters/api";
+import type { TaskResponse } from "@/domain/api";
 
 export function useTask(api = fetchApiAdapter) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const runTask = useCallback(
-    async (task: string, language: string) => {
+    async (task: string, language: string, narrationLanguage?: string): Promise<TaskResponse> => {
       setError(null);
       setLoading(true);
       try {
-        const data = await api.postTask(task, language);
+        const data = await api.postTask(task, language, narrationLanguage ?? "english");
         return data;
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Request failed";

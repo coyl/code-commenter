@@ -13,11 +13,11 @@ async function parseJson<T>(res: Response): Promise<T> {
 }
 
 export const fetchApiAdapter: ApiPort = {
-  async postTask(task: string, language: string): Promise<TaskResponse> {
+  async postTask(task: string, language: string, narrationLanguage = "english"): Promise<TaskResponse> {
     const res = await fetch(`${getBase()}/task`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task, language }),
+      body: JSON.stringify({ task, language, narration_language: narrationLanguage }),
     });
     return parseJson<TaskResponse>(res);
   },

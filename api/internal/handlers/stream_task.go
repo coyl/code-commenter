@@ -9,10 +9,12 @@ import (
 	appalignment "code-commenter/api/internal/app/alignment"
 )
 
-// StreamTaskRequest is the first message from client: { "task", "language" }.
+// StreamTaskRequest is the first message from client: { "task", "language" } or { "code", "language" } for "Your code" flow.
 type StreamTaskRequest struct {
-	Task     string `json:"task"`
-	Language string `json:"language"`
+	Task              string `json:"task"`
+	Language          string `json:"language"`
+	Code              string `json:"code"`
+	NarrationLanguage string `json:"narration_language"`
 }
 
 // HandleStreamTask runs the stream orchestrator and forwards typed events over websocket.
@@ -38,8 +40,10 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 
 		sink := wsadapter.Sink{Conn: ws}
 		_, _ = orchestrator.Run(r.Context(), appalignment.StreamRequest{
-			Task:     req.Task,
-			Language: req.Language,
+			Task:              req.Task,
+			Language:          req.Language,
+			Code:              req.Code,
+			NarrationLanguage: req.NarrationLanguage,
 		}, sink)
 	}
 }
