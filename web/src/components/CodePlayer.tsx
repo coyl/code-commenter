@@ -166,7 +166,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
         onDisplayedCodeChange(codeSoFar);
         streamCodeBufferRef.current = codeSoFar;
         const nextIndex = i + 1;
-        setCurrentSegmentIndex(nextIndex);
+        setCurrentSegmentIndex(Math.min(nextIndex, segs.length - 1));
         setCurrentNarration("");
         setNarrationDurationMs(0);
         playNextTimeoutRef.current = setTimeout(() => {
