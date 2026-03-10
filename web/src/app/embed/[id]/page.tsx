@@ -1,10 +1,16 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import CodePlayer from "@/components/CodePlayer";
 import type { Segment } from "@/domain/stream";
 import { useJob } from "@/features/job/useJob";
+
+function isAutoplayRequested(searchParams: URLSearchParams | null): boolean {
+  if (!searchParams) return false;
+  const v = searchParams.get("autoplay")?.toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
 
 const NARRATION_LANG_LABELS: Record<string, string> = {
   english: "English",
@@ -18,7 +24,9 @@ const OVERLAY_HIDE_DELAY_MS = 2500;
 
 export default function EmbedJobPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = typeof params.id === "string" ? params.id : null;
+  const autoplay = isAutoplayRequested(searchParams);
   const { job, loading, error } = useJob(id);
   const [displayedCode, setDisplayedCode] = useState("");
   const [overlayVisible, setOverlayVisible] = useState(false);
@@ -109,6 +117,7 @@ export default function EmbedJobPage() {
           displayedCode={displayedCode}
           onDisplayedCodeChange={setDisplayedCode}
           jobId={id}
+          autoplay={autoplay}
         />
       </div>
 

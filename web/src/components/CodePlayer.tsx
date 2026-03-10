@@ -28,6 +28,8 @@ export type CodePlayerProps = {
   loading?: boolean;
   /** When provided (e.g. main page streaming), last segment will wait for next segment instead of stopping. */
   streamEndedRef?: React.MutableRefObject<boolean>;
+  /** When true (e.g. embed with ?autoplay=1), start playback from segment 0 once segments are ready. */
+  autoplay?: boolean;
 };
 
 const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlayer(
@@ -39,6 +41,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     jobId = null,
     loading = false,
     streamEndedRef,
+    autoplay = false,
   },
   ref
 ) {
@@ -47,6 +50,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   const [narrationDurationMs, setNarrationDurationMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
+  const autoplayTriggeredRef = useRef(false);
   const [copyJustDone, setCopyJustDone] = useState(false);
   const [narrationReplayKey, setNarrationReplayKey] = useState(0);
   const [embedPopupOpen, setEmbedPopupOpen] = useState(false);
@@ -280,6 +284,16 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
       replaySegment(currentSegmentIndex);
     }
   }, [isPlaying, currentSegmentIndex, replaySegment, stopCurrentPlayback, unlockAudio]);
+
+  // Embed autoplay: when ?autoplay=1 and segments are ready, start playback from segment 0 once.
+  useEffect(() => {
+    if (!autoplay || segments.length === 0 || autoplayTriggeredRef.current) return;
+    autoplayTriggeredRef.current = true;
+    unlockAudio();
+    setCurrentSegmentIndex(0);
+    setIsPlaying(true);
+    replaySegment(0);
+  }, [autoplay, segments.length, unlockAudio, replaySegment]);
 
   const fullCodePlain = segments.map((s) => s.codePlain ?? s.code).join("");
   const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
