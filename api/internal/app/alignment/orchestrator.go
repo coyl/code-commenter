@@ -312,9 +312,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		title, _ := o.Generation.GenerateTitle(uploadCtx, spec, titlePrompt)
 		if title == "" {
 			title = jobPrompt
-			if len(title) > 60 {
-				title = title[:57] + "..."
-			}
+			title = truncateRunesWithEllipsis(title, 60)
 		}
 		storedSegments := make([]ports.JobSegment, 0, len(aligned)+1)
 		segmentAudio := make([][]byte, 0, len(aligned)+1)
@@ -363,6 +361,20 @@ func (o *StreamOrchestrator) event(jobID string, event ports.StreamEvent) ports.
 	event.EventVersion = 1
 	event.TimestampMs = time.Now().UnixMilli()
 	return event
+}
+
+func truncateRunesWithEllipsis(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return strings.Repeat(".", maxRunes)
+	}
+	return string(runes[:maxRunes-3]) + "..."
 }
 
 func normalizeLexerLanguage(lang string) string {

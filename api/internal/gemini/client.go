@@ -340,11 +340,23 @@ Output only the title, nothing else.`, prompt)
 	title := strings.TrimSpace(extractText(result))
 	if title == "" {
 		title = prompt
-		if len(title) > 60 {
-			title = title[:57] + "..."
-		}
+		title = truncateRunesWithEllipsis(title, 60)
 	}
 	return title, nil
+}
+
+func truncateRunesWithEllipsis(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return strings.Repeat(".", maxRunes)
+	}
+	return string(runes[:maxRunes-3]) + "..."
 }
 
 func parseSegmentsJSON(text string) ([]CodeSegment, error) {
