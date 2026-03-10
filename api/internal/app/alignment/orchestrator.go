@@ -164,10 +164,17 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		}
 		log.Info().Str("phase", "wrapping").Dur("elapsed", time.Since(streamStart)).Msg("stream task (batched)")
 		narrations := make([]string, 0, len(segments)+1)
-		for _, seg := range segments {
+		narrationToSegment := make([]int, 0, len(segments)+1) // maps narrations[j] -> segment index
+		for i, seg := range segments {
+			if seg.Narration == "" {
+				continue
+			}
+			narrationToSegment = append(narrationToSegment, i)
 			narrations = append(narrations, seg.Narration)
 		}
+		wrapNarrIdx := -1
 		if wrapping != "" {
+			wrapNarrIdx = len(narrations)
 			narrations = append(narrations, wrapping)
 		}
 		if len(narrations) > 0 {
@@ -176,13 +183,13 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 				_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "TTS: " + batchedErr.Error()}))
 				return "", batchedErr
 			}
-			for i := 0; i < len(segments); i++ {
-				if chunks, ok := batched[i]; ok && len(chunks) > 0 {
-					audioByIndex[i] = domain.SegmentAudio{Index: i, Chunks: chunks}
+			for j, segIdx := range narrationToSegment {
+				if chunks, ok := batched[j]; ok && len(chunks) > 0 {
+					audioByIndex[segIdx] = domain.SegmentAudio{Index: segIdx, Chunks: chunks}
 				}
 			}
-			if wrapping != "" {
-				wrapAudio = batched[len(segments)]
+			if wrapNarrIdx >= 0 {
+				wrapAudio = batched[wrapNarrIdx]
 			}
 		}
 	}
