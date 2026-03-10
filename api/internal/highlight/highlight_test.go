@@ -42,6 +42,30 @@ func TestCodeToHTML_UnknownLanguage(t *testing.T) {
 	}
 }
 
+// TestCodeToHTML_EmptyLanguage verifies that when language is empty, Chroma's Analyse is used
+// so that syntax highlighting still produces token spans (e.g. for "Your code" flow).
+func TestCodeToHTML_EmptyLanguage(t *testing.T) {
+	code := `package main
+func main() {
+	x := 42
+}
+`
+	got, err := CodeToHTML(code, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == "" {
+		t.Error("CodeToHTML with empty language returned empty")
+	}
+	// Auto-detection should recognize Go and emit token spans
+	if !containsStr(got, "token-keyword") {
+		t.Error("expected token-keyword when language is empty (auto-detect)")
+	}
+	if !containsStr(got, "main") {
+		t.Error("expected source text in output")
+	}
+}
+
 // ==================== Token-based (JSON AST) tests ====================
 
 func TestTokensToHTML_Basic(t *testing.T) {

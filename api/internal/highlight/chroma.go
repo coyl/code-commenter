@@ -15,8 +15,15 @@ import (
 // class names token-keyword, token-string, token-comment, token-number,
 // token-function, token-operator, token-punctuation, token-variable.
 // Language is the Chroma lexer name (e.g. "go", "javascript", "python").
+// If language is empty, the lexer is auto-detected from the code via lexers.Analyse.
 func CodeToHTML(code, language string) (string, error) {
-	lexer := lexers.Get(language)
+	var lexer chroma.Lexer
+	if strings.TrimSpace(language) == "" {
+		lexer = lexers.Analyse(code)
+	}
+	if lexer == nil {
+		lexer = lexers.Get(language)
+	}
 	if lexer == nil {
 		lexer = lexers.Fallback
 	}

@@ -3,6 +3,7 @@ package alignment
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	domain "code-commenter/api/internal/domain/alignment"
@@ -13,7 +14,7 @@ type fakeGeneration struct {
 	segments []ports.CodeSegment
 }
 
-func (f fakeGeneration) GenerateTaskSpec(context.Context, string, string) (string, string, error) {
+func (f fakeGeneration) GenerateTaskSpec(context.Context, string, string, string) (string, string, error) {
 	return "spec", "intro", nil
 }
 func (f fakeGeneration) GenerateCSS(context.Context, string, string) (string, error) {
@@ -22,11 +23,20 @@ func (f fakeGeneration) GenerateCSS(context.Context, string, string) (string, er
 func (f fakeGeneration) GenerateCode(context.Context, string, string) (string, error) {
 	return "code", nil
 }
-func (f fakeGeneration) GenerateCodeSegments(context.Context, string, string) ([]ports.CodeSegment, string, error) {
+func (f fakeGeneration) GenerateCodeSegments(context.Context, string, string, string) ([]ports.CodeSegment, string, error) {
 	return f.segments, `[{"c":"code","n":"narration"}]`, nil
 }
-func (f fakeGeneration) GenerateWrappingNarration(context.Context, string, string) (string, error) {
+func (f fakeGeneration) FormatAndSegmentCode(context.Context, string, string) ([]ports.CodeSegment, string, error) {
+	return f.segments, `[{"c":"code","n":"narration"}]`, nil
+}
+func (f fakeGeneration) GenerateWrappingNarration(context.Context, string, string, string) (string, error) {
 	return "", nil
+}
+func (f fakeGeneration) GenerateWrappingNarrationForUserCode(context.Context, string, string) (string, error) {
+	return "", nil
+}
+func (f fakeGeneration) GenerateTitle(context.Context, string, string) (string, error) {
+	return "Test title", nil
 }
 func (f fakeGeneration) GenerateChange(context.Context, string, string, string, string) (string, string, string, error) {
 	return "", "", "", nil
@@ -62,7 +72,7 @@ func (f *fakeSessions) Get(string) *ports.SessionData {
 
 type fakeJobs struct{}
 
-func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
+func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
 	return nil
 }
 func (fakeJobs) GetJob(context.Context, string) (interface{}, error) {
@@ -149,5 +159,47 @@ func TestOrchestratorContinuesWhenSegmentTTSFails(t *testing.T) {
 	}
 	if !foundSession {
 		t.Fatal("expected final session event despite TTS error")
+	}
+}
+
+func TestOrchestratorRejectsUserCodeOverLimit(t *testing.T) {
+	sink := &captureSink{}
+	o := &StreamOrchestrator{
+		Generation: fakeGeneration{segments: []ports.CodeSegment{{Code: "x", Narration: "n"}}},
+		Audio:      fakeAudio{errFor: map[string]error{}},
+		Renderer:   fakeRenderer{},
+		Sessions:   &fakeSessions{},
+		Jobs:       fakeJobs{},
+		Aligner:    domain.Service{},
+	}
+
+	overLimit := strings.Repeat("x", MaxUserCodeLength+1)
+	_, err := o.Run(context.Background(), StreamRequest{
+		Code:              overLimit,
+		NarrationLanguage: "english",
+	}, sink)
+	if err == nil {
+		t.Fatal("Run() expected error when code exceeds MaxUserCodeLength")
+	}
+
+	var foundErrorEvent bool
+	for _, e := range sink.events {
+		if e.Type == "error" && strings.Contains(e.Error, "exceeds maximum length") {
+			foundErrorEvent = true
+			break
+		}
+	}
+	if !foundErrorEvent {
+		t.Fatalf("expected error event with limit message; events: %v", sink.events)
+	}
+	// Generation (FormatAndSegmentCode) must not be called: no segment events from real generation
+	segmentCount := 0
+	for _, e := range sink.events {
+		if e.Type == "segment" {
+			segmentCount++
+		}
+	}
+	if segmentCount > 0 {
+		t.Fatalf("expected no segment events when over limit, got %d", segmentCount)
 	}
 }

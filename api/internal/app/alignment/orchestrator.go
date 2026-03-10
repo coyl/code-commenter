@@ -4,13 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"html"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 
 	domain "code-commenter/api/internal/domain/alignment"
 	"code-commenter/api/internal/ports"
@@ -18,10 +21,17 @@ import (
 
 const s3UploadTimeout = 90 * time.Second
 
+// MaxUserCodeLength is the maximum allowed length (in runes/characters) for pasted code in the "Your code" flow. Must match client limit.
+const MaxUserCodeLength = 5000
+
 // StreamRequest is the inbound request for a stream session.
+// If Code is non-empty, the flow uses the user's code (format + segment only); otherwise task is used to generate code.
+// NarrationLanguage is the language for voiceover text (e.g. "english", "german").
 type StreamRequest struct {
-	Task     string
-	Language string
+	Task              string
+	Language          string
+	Code              string // optional: user-provided code for "Your code" flow
+	NarrationLanguage string
 }
 
 // StreamOrchestrator coordinates generation, alignment, and persistence.
@@ -36,11 +46,15 @@ type StreamOrchestrator struct {
 
 // Run executes the end-to-end stream flow and emits transport-neutral events.
 func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink ports.EventSink) (string, error) {
-	if req.Task == "" {
-		req.Task = "a simple hello world"
+	if strings.TrimSpace(req.NarrationLanguage) == "" {
+		req.NarrationLanguage = "english"
 	}
-	if req.Language == "" {
+	userCodeMode := strings.TrimSpace(req.Code) != ""
+	if !userCodeMode && req.Language == "" {
 		req.Language = "javascript"
+	}
+	if !userCodeMode && req.Task == "" {
+		req.Task = "a simple hello world"
 	}
 
 	jobID := ""
@@ -51,17 +65,35 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		}
 	}
 
-	streamStart := time.Now()
-	log.Info().Str("phase", "start").Str("job", jobID).Dur("elapsed", 0).Msg("stream task")
-
-	spec, narration, err := o.Generation.GenerateTaskSpec(ctx, req.Task, req.Language)
-	log.Info().Str("phase", "spec").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
-	if err != nil {
-		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "spec: " + err.Error()}))
-		return "", err
+	if userCodeMode {
+		trimmed := strings.TrimSpace(req.Code)
+		if runeCount := len([]rune(trimmed)); runeCount > MaxUserCodeLength {
+			errMsg := fmt.Sprintf("code exceeds maximum length (%d characters, limit %d)", runeCount, MaxUserCodeLength)
+			_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: errMsg}))
+			return "", fmt.Errorf("%s", errMsg)
+		}
 	}
-	if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "spec", Spec: spec, Narration: narration})); err != nil {
-		return "", err
+
+	streamStart := time.Now()
+	log.Info().Str("phase", "start").Str("job", jobID).Bool("userCode", userCodeMode).Dur("elapsed", 0).Msg("stream task")
+
+	var spec, narration string
+	if userCodeMode {
+		spec = "User-provided code snippet for narration."
+		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "spec", Spec: spec, Narration: narration})); err != nil {
+			return "", err
+		}
+	} else {
+		var err error
+		spec, narration, err = o.Generation.GenerateTaskSpec(ctx, req.Task, req.Language, req.NarrationLanguage)
+		log.Info().Str("phase", "spec").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
+		if err != nil {
+			_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "spec: " + err.Error()}))
+			return "", err
+		}
+		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "spec", Spec: spec, Narration: narration})); err != nil {
+			return "", err
+		}
 	}
 
 	css, err := o.Generation.GenerateCSS(ctx, spec, req.Language)
@@ -74,13 +106,21 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	}
 	log.Info().Str("phase", "css").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
-	segments, rawSegmentsJSON, err := o.Generation.GenerateCodeSegments(ctx, spec, req.Language)
+	var segments []ports.CodeSegment
+	var rawSegmentsJSON string
+	if userCodeMode {
+		segments, rawSegmentsJSON, err = o.Generation.FormatAndSegmentCode(ctx, strings.TrimSpace(req.Code), req.NarrationLanguage)
+	} else {
+		segments, rawSegmentsJSON, err = o.Generation.GenerateCodeSegments(ctx, spec, req.Language, req.NarrationLanguage)
+	}
 	if err != nil {
 		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "segments: " + err.Error()}))
 		return "", err
 	}
 	log.Info().Str("phase", "segments").Int("n", len(segments)).Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
+	// Token bucket: 10 TTS requests per minute (gemini-2.5-flash-tts quota). Burst 1 so we never start more than 1 per 6s.
+	ttsLimiter := rate.NewLimiter(rate.Every(6*time.Second), 1)
 	audioByIndex := make(map[int]domain.SegmentAudio, len(segments))
 	audioResults := make(chan domain.SegmentAudio, len(segments)+1)
 	var wg sync.WaitGroup
@@ -92,6 +132,10 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if err := ttsLimiter.Wait(ctx); err != nil {
+				audioResults <- domain.SegmentAudio{Index: idx, Err: err}
+				return
+			}
 			chunks, ttsErr := o.Audio.GenerateAudioChunks(ctx, narrationText)
 			audioResults <- domain.SegmentAudio{Index: idx, Chunks: chunks, Err: ttsErr}
 		}()
@@ -164,9 +208,17 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	}
 
 	wrapAudio := []string{}
-	wrapping, wrapErr := o.Generation.GenerateWrappingNarration(ctx, spec, req.Language)
+	var wrapping string
+	if userCodeMode {
+		s := segmentNarrationsSummary(segments, 1500)
+		if strings.TrimSpace(s) != "" {
+			wrapping, _ = o.Generation.GenerateWrappingNarrationForUserCode(ctx, s, req.NarrationLanguage)
+		}
+	} else {
+		wrapping, _ = o.Generation.GenerateWrappingNarration(ctx, spec, req.Language, req.NarrationLanguage)
+	}
 	log.Info().Str("phase", "wrapping").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
-	if wrapErr == nil && wrapping != "" {
+	if wrapping != "" {
 		if err := sink.Emit(o.event(jobID, ports.StreamEvent{
 			Type:      "segment",
 			Index:     len(segmentEntries),
@@ -217,6 +269,21 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	})
 
 	if o.Jobs != nil && o.Jobs.IsEnabled() && jobID != "" {
+		jobPrompt := req.Task
+		if userCodeMode {
+			jobPrompt = "User-provided code"
+		}
+		uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), s3UploadTimeout)
+		defer cancelUpload()
+		titlePrompt := jobPrompt
+		if userCodeMode && len(segments) > 0 {
+			titlePrompt = segmentNarrationsSummary(segments, 800)
+		}
+		title, _ := o.Generation.GenerateTitle(uploadCtx, spec, titlePrompt)
+		if title == "" {
+			title = jobPrompt
+			title = truncateRunesWithEllipsis(title, 60)
+		}
 		storedSegments := make([]ports.JobSegment, 0, len(aligned)+1)
 		segmentAudio := make([][]byte, 0, len(aligned)+1)
 		for _, item := range aligned {
@@ -243,9 +310,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			}
 			segmentAudio = append(segmentAudio, wrapPCM)
 		}
-		uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), s3UploadTimeout)
-		defer cancelUpload()
-		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, req.Task, rawSegmentsJSON, fullHTML.String(), codePlain, storedSegments, segmentAudio); upErr != nil {
+		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, storedSegments, segmentAudio); upErr != nil {
 			ev := log.Error().Err(upErr).Str("job", jobID).Dur("timeout", s3UploadTimeout)
 			if errors.Is(upErr, context.DeadlineExceeded) {
 				ev.Msg("S3 upload timed out")
@@ -266,6 +331,40 @@ func (o *StreamOrchestrator) event(jobID string, event ports.StreamEvent) ports.
 	event.EventVersion = 1
 	event.TimestampMs = time.Now().UnixMilli()
 	return event
+}
+
+func truncateRunesWithEllipsis(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return strings.Repeat(".", maxRunes)
+	}
+	return string(runes[:maxRunes-3]) + "..."
+}
+
+// segmentNarrationsSummary joins segment narrations with spaces and truncates to maxBytes at a valid UTF-8 boundary.
+func segmentNarrationsSummary(segments []ports.CodeSegment, maxBytes int) string {
+	var b strings.Builder
+	for i, seg := range segments {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(strings.TrimSpace(seg.Narration))
+	}
+	s := b.String()
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	end := maxBytes
+	for end > 0 && !utf8.ValidString(s[:end]) {
+		end--
+	}
+	return s[:end] + "..."
 }
 
 func normalizeLexerLanguage(lang string) string {

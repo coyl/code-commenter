@@ -10,8 +10,9 @@ import (
 
 // TaskRequest is the JSON body for POST /task.
 type TaskRequest struct {
-	Task     string `json:"task"`
-	Language string `json:"language"`
+	Task              string `json:"task"`
+	Language          string `json:"language"`
+	NarrationLanguage string `json:"narration_language"`
 }
 
 // TaskResponse is the JSON response for POST /task.
@@ -43,8 +44,11 @@ func HandleTask(gen ports.GenerationPort, sessions ports.SessionRepository) http
 		if req.Language == "" {
 			req.Language = "javascript"
 		}
+		if req.NarrationLanguage == "" {
+			req.NarrationLanguage = "english"
+		}
 
-		spec, narration, err := gen.GenerateTaskSpec(r.Context(), req.Task, req.Language)
+		spec, narration, err := gen.GenerateTaskSpec(r.Context(), req.Task, req.Language, req.NarrationLanguage)
 		if err != nil {
 			http.Error(w, "task spec failed: "+err.Error(), http.StatusInternalServerError)
 			return
