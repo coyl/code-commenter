@@ -210,22 +210,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	wrapAudio := []string{}
 	var wrapping string
 	if userCodeMode {
-		var summary strings.Builder
-		for i, seg := range segments {
-			if i > 0 {
-				summary.WriteString(" ")
-			}
-			summary.WriteString(strings.TrimSpace(seg.Narration))
-		}
-		s := summary.String()
-		const maxSummaryBytes = 1500
-		if len(s) > maxSummaryBytes {
-			end := maxSummaryBytes
-			for end > 0 && !utf8.ValidString(s[:end]) {
-				end--
-			}
-			s = s[:end] + "..."
-		}
+		s := segmentNarrationsSummary(segments, 1500)
 		if strings.TrimSpace(s) != "" {
 			wrapping, _ = o.Generation.GenerateWrappingNarrationForUserCode(ctx, s, req.NarrationLanguage)
 		}
@@ -292,22 +277,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		defer cancelUpload()
 		titlePrompt := jobPrompt
 		if userCodeMode && len(segments) > 0 {
-			var sb strings.Builder
-			for i, seg := range segments {
-				if i > 0 {
-					sb.WriteString(" ")
-				}
-				sb.WriteString(strings.TrimSpace(seg.Narration))
-			}
-			titlePrompt = sb.String()
-			const maxTitleContext = 800
-			if len(titlePrompt) > maxTitleContext {
-				end := maxTitleContext
-				for end > 0 && !utf8.ValidString(titlePrompt[:end]) {
-					end--
-				}
-				titlePrompt = titlePrompt[:end] + "..."
-			}
+			titlePrompt = segmentNarrationsSummary(segments, 800)
 		}
 		title, _ := o.Generation.GenerateTitle(uploadCtx, spec, titlePrompt)
 		if title == "" {
@@ -375,6 +345,26 @@ func truncateRunesWithEllipsis(s string, maxRunes int) string {
 		return strings.Repeat(".", maxRunes)
 	}
 	return string(runes[:maxRunes-3]) + "..."
+}
+
+// segmentNarrationsSummary joins segment narrations with spaces and truncates to maxBytes at a valid UTF-8 boundary.
+func segmentNarrationsSummary(segments []ports.CodeSegment, maxBytes int) string {
+	var b strings.Builder
+	for i, seg := range segments {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(strings.TrimSpace(seg.Narration))
+	}
+	s := b.String()
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	end := maxBytes
+	for end > 0 && !utf8.ValidString(s[:end]) {
+		end--
+	}
+	return s[:end] + "..."
 }
 
 func normalizeLexerLanguage(lang string) string {
