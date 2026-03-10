@@ -18,6 +18,9 @@ const NARRATION_LANGUAGES = [
   { value: "chinese", label: "Chinese (Simplified)" },
 ] as const;
 
+/** Max characters for the "Your code" paste input (enforced on client; backend truncates segment summary for wrapping narration). */
+const MAX_USER_CODE_LENGTH = 5_000;
+
 export default function Home() {
   const [inputTab, setInputTab] = useState<InputTab>("task");
   const [task, setTask] = useState("");
@@ -179,12 +182,25 @@ export default function Home() {
             onChange={(e) => setTask(e.target.value)}
           />
         ) : (
-          <textarea
-            className="w-full h-40 px-3 py-2 rounded bg-zinc-800 border border-zinc-600 text-zinc-100 placeholder-zinc-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent resize-none font-mono text-sm"
-            placeholder="Paste your code here. It will be formatted (indentation/newlines only) and split into segments for interactive narration."
-            value={userCode}
-            onChange={(e) => setUserCode(e.target.value)}
-          />
+          <div>
+            <textarea
+              className="w-full h-40 px-3 py-2 rounded bg-zinc-800 border border-zinc-600 text-zinc-100 placeholder-zinc-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent resize-none font-mono text-sm"
+              placeholder="Paste your code here. It will be formatted (indentation/newlines only) and split into segments for interactive narration."
+              value={userCode}
+              maxLength={MAX_USER_CODE_LENGTH}
+              onChange={(e) => setUserCode(e.target.value.slice(0, MAX_USER_CODE_LENGTH))}
+            />
+            <p
+              className={`mt-1.5 text-right text-xs ${
+                userCode.length >= MAX_USER_CODE_LENGTH
+                  ? "text-amber-400"
+                  : "text-zinc-500"
+              }`}
+              aria-live="polite"
+            >
+              {userCode.length.toLocaleString()} / {MAX_USER_CODE_LENGTH.toLocaleString()} characters
+            </p>
+          </div>
         )}
         <div className="flex flex-wrap items-center gap-3 mt-3">
           {inputTab === "task" && (

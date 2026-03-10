@@ -3,6 +3,7 @@ package alignment
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	domain "code-commenter/api/internal/domain/alignment"
@@ -155,5 +156,47 @@ func TestOrchestratorContinuesWhenSegmentTTSFails(t *testing.T) {
 	}
 	if !foundSession {
 		t.Fatal("expected final session event despite TTS error")
+	}
+}
+
+func TestOrchestratorRejectsUserCodeOverLimit(t *testing.T) {
+	sink := &captureSink{}
+	o := &StreamOrchestrator{
+		Generation: fakeGeneration{segments: []ports.CodeSegment{{Code: "x", Narration: "n"}}},
+		Audio:      fakeAudio{errFor: map[string]error{}},
+		Renderer:   fakeRenderer{},
+		Sessions:   &fakeSessions{},
+		Jobs:       fakeJobs{},
+		Aligner:    domain.Service{},
+	}
+
+	overLimit := strings.Repeat("x", MaxUserCodeLength+1)
+	_, err := o.Run(context.Background(), StreamRequest{
+		Code:              overLimit,
+		NarrationLanguage: "english",
+	}, sink)
+	if err == nil {
+		t.Fatal("Run() expected error when code exceeds MaxUserCodeLength")
+	}
+
+	var foundErrorEvent bool
+	for _, e := range sink.events {
+		if e.Type == "error" && strings.Contains(e.Error, "exceeds maximum length") {
+			foundErrorEvent = true
+			break
+		}
+	}
+	if !foundErrorEvent {
+		t.Fatalf("expected error event with limit message; events: %v", sink.events)
+	}
+	// Generation (FormatAndSegmentCode) must not be called: no segment events from real generation
+	segmentCount := 0
+	for _, e := range sink.events {
+		if e.Type == "segment" {
+			segmentCount++
+		}
+	}
+	if segmentCount > 0 {
+		t.Fatalf("expected no segment events when over limit, got %d", segmentCount)
 	}
 }

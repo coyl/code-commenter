@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"html"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
@@ -18,6 +20,9 @@ import (
 )
 
 const s3UploadTimeout = 90 * time.Second
+
+// MaxUserCodeLength is the maximum allowed length (in runes/characters) for pasted code in the "Your code" flow. Must match client limit.
+const MaxUserCodeLength = 5000
 
 // StreamRequest is the inbound request for a stream session.
 // If Code is non-empty, the flow uses the user's code (format + segment only); otherwise task is used to generate code.
@@ -57,6 +62,15 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		jobID = id.String()
 		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "job_started", ID: jobID})); err != nil {
 			return "", err
+		}
+	}
+
+	if userCodeMode {
+		trimmed := strings.TrimSpace(req.Code)
+		if runeCount := len([]rune(trimmed)); runeCount > MaxUserCodeLength {
+			errMsg := fmt.Sprintf("code exceeds maximum length (%d characters, limit %d)", runeCount, MaxUserCodeLength)
+			_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: errMsg}))
+			return "", fmt.Errorf("%s", errMsg)
 		}
 	}
 
@@ -204,8 +218,13 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			summary.WriteString(strings.TrimSpace(seg.Narration))
 		}
 		s := summary.String()
-		if len(s) > 1500 {
-			s = s[:1500] + "..."
+		const maxSummaryBytes = 1500
+		if len(s) > maxSummaryBytes {
+			end := maxSummaryBytes
+			for end > 0 && !utf8.ValidString(s[:end]) {
+				end--
+			}
+			s = s[:end] + "..."
 		}
 		if s != "" {
 			wrapping, _ = o.Generation.GenerateWrappingNarrationForUserCode(ctx, s, req.NarrationLanguage)
