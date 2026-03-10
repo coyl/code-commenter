@@ -226,7 +226,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			}
 			s = s[:end] + "..."
 		}
-		if s != "" {
+		if strings.TrimSpace(s) != "" {
 			wrapping, _ = o.Generation.GenerateWrappingNarrationForUserCode(ctx, s, req.NarrationLanguage)
 		}
 	} else {
@@ -284,6 +284,38 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	})
 
 	if o.Jobs != nil && o.Jobs.IsEnabled() && jobID != "" {
+		jobPrompt := req.Task
+		if userCodeMode {
+			jobPrompt = "User-provided code"
+		}
+		uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), s3UploadTimeout)
+		defer cancelUpload()
+		titlePrompt := jobPrompt
+		if userCodeMode && len(segments) > 0 {
+			var sb strings.Builder
+			for i, seg := range segments {
+				if i > 0 {
+					sb.WriteString(" ")
+				}
+				sb.WriteString(strings.TrimSpace(seg.Narration))
+			}
+			titlePrompt = sb.String()
+			const maxTitleContext = 800
+			if len(titlePrompt) > maxTitleContext {
+				end := maxTitleContext
+				for end > 0 && !utf8.ValidString(titlePrompt[:end]) {
+					end--
+				}
+				titlePrompt = titlePrompt[:end] + "..."
+			}
+		}
+		title, _ := o.Generation.GenerateTitle(uploadCtx, spec, titlePrompt)
+		if title == "" {
+			title = jobPrompt
+			if len(title) > 60 {
+				title = title[:57] + "..."
+			}
+		}
 		storedSegments := make([]ports.JobSegment, 0, len(aligned)+1)
 		segmentAudio := make([][]byte, 0, len(aligned)+1)
 		for _, item := range aligned {
@@ -310,13 +342,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			}
 			segmentAudio = append(segmentAudio, wrapPCM)
 		}
-		uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), s3UploadTimeout)
-		defer cancelUpload()
-		jobPrompt := req.Task
-		if userCodeMode {
-			jobPrompt = "User-provided code"
-		}
-		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, storedSegments, segmentAudio); upErr != nil {
+		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, storedSegments, segmentAudio); upErr != nil {
 			ev := log.Error().Err(upErr).Str("job", jobID).Dur("timeout", s3UploadTimeout)
 			if errors.Is(upErr, context.DeadlineExceeded) {
 				ev.Msg("S3 upload timed out")

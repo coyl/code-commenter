@@ -62,7 +62,9 @@ func (a *Adapter) GenerateWrappingNarration(ctx context.Context, spec, language,
 func (a *Adapter) GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error) {
 	return a.Client.GenerateWrappingNarrationForUserCode(ctx, segmentNarrationsSummary, narrationLang)
 }
-
+func (a *Adapter) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
+	return a.Client.GenerateTitle(ctx, spec, prompt)
+}
 func (a *Adapter) GenerateChange(ctx context.Context, currentCSS, currentCode, userMessage, language string) (string, string, string, error) {
 	return a.Client.GenerateChange(ctx, currentCSS, currentCode, userMessage, language)
 }

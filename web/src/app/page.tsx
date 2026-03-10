@@ -213,6 +213,8 @@ export default function Home() {
               <option value="typescript">TypeScript</option>
               <option value="python">Python</option>
               <option value="go">Go</option>
+              <option value="php">PHP</option>
+              <option value="ruby">Ruby</option>
             </select>
           )}
           <select

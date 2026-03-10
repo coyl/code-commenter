@@ -35,6 +35,9 @@ func (f fakeGeneration) GenerateWrappingNarration(context.Context, string, strin
 func (f fakeGeneration) GenerateWrappingNarrationForUserCode(context.Context, string, string) (string, error) {
 	return "", nil
 }
+func (f fakeGeneration) GenerateTitle(context.Context, string, string) (string, error) {
+	return "Test title", nil
+}
 func (f fakeGeneration) GenerateChange(context.Context, string, string, string, string) (string, string, string, error) {
 	return "", "", "", nil
 }
@@ -69,7 +72,7 @@ func (f *fakeSessions) Get(string) *ports.SessionData {
 
 type fakeJobs struct{}
 
-func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
+func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
 	return nil
 }
 func (fakeJobs) GetJob(context.Context, string) (interface{}, error) {

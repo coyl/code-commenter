@@ -99,19 +99,19 @@ func (c *Client) GenerateCSS(ctx context.Context, spec, language string) (css st
 	}
 	prompt := fmt.Sprintf(`Generate a single block of CSS for a code viewer page. The page shows code in a monospace editor with syntax highlighting. Language: %s. Context: %s
 
-Output only valid CSS, no markdown code fences. Include:
-- A container for the code view (e.g. #code-view or .code-view): background, border, padding
-- Base code style: font-family monospace, font-size, line height, default text color
-- Syntax highlighting classes for tokens (use these exact class names so the frontend can style them):
-  .token-keyword   { color for keywords: function, const, if, return, etc. }
-  .token-string    { color for string literals }
-  .token-comment   { color for line and block comments }
-  .token-number    { color for numeric literals }
-  .token-function  { color for function/method names }
-  .token-operator  { color for operators: +, -, =, etc. }
-  .token-punctuation { color for brackets, commas, semicolons }
-  .token-variable  { color for variables and identifiers }
-Pick a cohesive color scheme (e.g. dark/light background with cyan/green/amber accents).`, langHint, spec)
+CRITICAL: Every selector MUST be scoped under #code-view so it only affects the code block. Use exactly:
+#code-view { container: background, border, padding, font-family monospace, font-size, line-height, default text color }
+#code-view .token-keyword   { color for keywords: function, const, if, return, etc. }
+#code-view .token-string   { color for string literals }
+#code-view .token-comment  { color for line and block comments }
+#code-view .token-number   { color for numeric literals }
+#code-view .token-function  { color for function/method names }
+#code-view .token-operator  { color for operators: +, -, =, etc. }
+#code-view .token-punctuation { color for brackets, commas, semicolons }
+#code-view .token-variable { color for variables and identifiers }
+
+You MUST define each of the eight .token-* classes with a visibly different color (e.g. keyword=cyan, string=green, comment=gray italic, number=amber, function=purple, operator=slate, punctuation=slate, variable=white). Do not use a single color for all tokens.
+Output only valid CSS, no markdown code fences. Pick a cohesive color scheme (e.g. dark background with cyan/green/amber accents).`, langHint, spec)
 
 	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
@@ -315,6 +315,38 @@ No code snippets, no markdown. Output only the narration text, nothing else.`, s
 	return strings.TrimSpace(extractText(result)), nil
 }
 
+// GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code).
+func (c *Client) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
+	if strings.TrimSpace(prompt) == "" {
+		prompt = spec
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return "Code walkthrough", nil
+	}
+	promptText := fmt.Sprintf(`Given the following (a coding task description or a walkthrough of what the code does), output a single short title (3–8 words) that captures the essence. Examples: "React counter with hooks", "Python binary search", "Go HTTP server with middleware". Do not use generic phrases like "Analysis of user provided code". No quotes, no period.
+
+%s
+
+Output only the title, nothing else.`, prompt)
+	start := time.Now()
+	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
+		{Parts: []*genai.Part{{Text: promptText}}},
+	}, nil)
+	if err != nil {
+		log.Error().Err(err).Str("op", "GenerateTitle").Dur("dur", time.Since(start)).Msg("llm request")
+		return "", err
+	}
+	log.Info().Str("op", "GenerateTitle").Dur("dur", time.Since(start)).Msg("llm request")
+	title := strings.TrimSpace(extractText(result))
+	if title == "" {
+		title = prompt
+		if len(title) > 60 {
+			title = title[:57] + "..."
+		}
+	}
+	return title, nil
+}
+
 func parseSegmentsJSON(text string) ([]CodeSegment, error) {
 	text = strings.TrimSpace(text)
 	// The schema returns a top-level array.
@@ -383,7 +415,7 @@ func (c *Client) GenerateAudioStream(ctx context.Context, ttsModel, script strin
 		},
 	}
 	contents := []*genai.Content{
-		{Role: "user", Parts: []*genai.Part{{Text: script}}},
+		{Role: "user", Parts: []*genai.Part{{Text: "Generate audio from the following script: " + script}}},
 	}
 	for resp, err := range c.client.Models.GenerateContentStream(ctx, ttsModel, contents, cfg) {
 		if err != nil {

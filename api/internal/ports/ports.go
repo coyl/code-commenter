@@ -37,6 +37,7 @@ type GenerationPort interface {
 	GenerateWrappingNarration(ctx context.Context, spec, language, narrationLang string) (string, error)
 	// GenerateWrappingNarrationForUserCode returns a short closing voiceover for user-pasted code (segmentNarrationsSummary is concatenated segment narrations).
 	GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error)
+	GenerateTitle(ctx context.Context, spec, prompt string) (string, error)
 	GenerateChange(ctx context.Context, currentCSS, currentCode, userMessage, language string) (newCSS, newCode, unifiedDiff string, err error)
 }
 
@@ -58,7 +59,7 @@ type SessionRepository interface {
 
 // JobRepository archives generated jobs and loads them by id.
 type JobRepository interface {
-	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain string, segments []JobSegment, segmentAudio [][]byte) error
+	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang string, segments []JobSegment, segmentAudio [][]byte) error
 	GetJob(ctx context.Context, jobID string) (interface{}, error)
 	IsEnabled() bool
 }
