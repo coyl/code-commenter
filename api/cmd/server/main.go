@@ -94,8 +94,9 @@ func corsMiddleware(next http.Handler, origins string) http.Handler {
 		requestOrigin := r.Header.Get("Origin")
 		if allowOrigin := matchAllowedOrigin(requestOrigin, allowedOrigins); allowOrigin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-			w.Header().Set("Vary", "Origin")
 		}
+		// Always set Vary so caches do not serve a response (e.g. one without ACAO) for a different Origin.
+		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
