@@ -6,7 +6,6 @@ import { usePCMPlayer } from "@/lib/audio";
 import type { Segment } from "@/domain/stream";
 import { useStreamTask } from "@/features/stream/useStreamTask";
 import { useTask } from "@/features/task/useTask";
-import { useChange } from "@/features/change/useChange";
 
 type InputTab = "task" | "code";
 
@@ -32,7 +31,6 @@ export default function Home() {
   const [code, setCode] = useState("");
   const [displayedCode, setDisplayedCode] = useState("");
   const [narration, setNarration] = useState("");
-  const [changeMessage, setChangeMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -67,12 +65,10 @@ export default function Home() {
   );
   const { runStream } = useStreamTask(streamCallbacks);
   const { runTask, error: taskError, clearError: clearTaskError } = useTask();
-  const { applyChange, changing, error: changeError, clearError: clearChangeError } = useChange();
 
   const clearAllErrors = () => {
     setError(null);
     clearTaskError();
-    clearChangeError();
   };
 
   useEffect(() => {
@@ -125,19 +121,7 @@ export default function Home() {
     }
   };
 
-  const submitChange = async () => {
-    if (!sessionId || !changeMessage.trim()) return;
-    clearAllErrors();
-    const data = await applyChange(sessionId, changeMessage.trim());
-    if (data) {
-      setCss(data.css);
-      setCode(data.code);
-      setDisplayedCode(data.code);
-      setChangeMessage("");
-    }
-  };
-
-  const displayError = error ?? changeError ?? taskError ?? null;
+  const displayError = error ?? taskError ?? null;
 
   return (
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
@@ -290,29 +274,6 @@ export default function Home() {
             </div>
           )}
         </>
-      )}
-
-      {sessionId && (
-        <section className="mb-6 p-4 rounded-lg bg-zinc-900/80 border border-zinc-700">
-          <label className="block text-sm font-medium text-zinc-300 mb-2">Request a change</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className="flex-1 px-3 py-2 rounded bg-zinc-800 border border-zinc-600 text-zinc-100 placeholder-zinc-500 focus:ring-2 focus:ring-cyan-500"
-              placeholder="e.g. make the button blue"
-              value={changeMessage}
-              onChange={(e) => setChangeMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitChange()}
-            />
-            <button
-              onClick={submitChange}
-              disabled={changing}
-              className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-medium text-sm"
-            >
-              {changing ? "Applying…" : "Apply"}
-            </button>
-          </div>
-        </section>
       )}
     </main>
   );

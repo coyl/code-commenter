@@ -38,9 +38,6 @@ func (f fakeGeneration) GenerateWrappingNarrationForUserCode(context.Context, st
 func (f fakeGeneration) GenerateTitle(context.Context, string, string) (string, error) {
 	return "Test title", nil
 }
-func (f fakeGeneration) GenerateChange(context.Context, string, string, string, string) (string, string, string, error) {
-	return "", "", "", nil
-}
 
 type fakeAudio struct {
 	errFor map[string]error

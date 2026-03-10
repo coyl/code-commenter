@@ -450,48 +450,6 @@ func (c *Client) GenerateAudioStream(ctx context.Context, ttsModel, script strin
 	return nil
 }
 
-// GenerateChange produces updated CSS, full new code, and a code diff given current state and user request.
-func (c *Client) GenerateChange(ctx context.Context, currentCSS, currentCode, userMessage, language string) (newCSS, newCode, unifiedDiff string, err error) {
-	prompt := fmt.Sprintf(`You are a coding assistant. The user wants to change the current code/CSS.
-
-Current CSS (full block):
----CSS---
-%s
----END CSS---
-
-Current code (full source):
----CODE---
-%s
----END CODE---
-
-User request: %s
-Language: %s
-
-Respond in this exact format only (no other text):
----NEW CSS---
-<full updated CSS block>
----END NEW CSS---
----NEW CODE---
-<full new source code after applying the change>
----END NEW CODE---
----UNIFIED DIFF---
-<unified diff for the code change, e.g. diff -u style>
----END UNIFIED DIFF---`, currentCSS, currentCode, userMessage, language)
-
-	start := time.Now()
-	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
-		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
-	if err != nil {
-		log.Error().Err(err).Str("op", "GenerateChange").Dur("dur", time.Since(start)).Msg("llm request")
-		return "", "", "", err
-	}
-	log.Info().Str("op", "GenerateChange").Dur("dur", time.Since(start)).Msg("llm request")
-	text := extractText(result)
-	newCSS, newCode, unifiedDiff = parseChangeResponse(text)
-	return newCSS, newCode, unifiedDiff, nil
-}
-
 func extractText(resp *genai.GenerateContentResponse) string {
 	if resp == nil || len(resp.Candidates) == 0 {
 		return ""
@@ -535,25 +493,4 @@ func parseSpecAndNarration(text string) (spec, narration string) {
 		spec = strings.TrimSpace(text[specIdx+5:])
 	}
 	return spec, text
-}
-
-func parseChangeResponse(text string) (newCSS, newCode, unifiedDiff string) {
-	text = strings.TrimSpace(text)
-	cssStart := strings.Index(text, "---NEW CSS---")
-	cssEnd := strings.Index(text, "---END NEW CSS---")
-	codeStart := strings.Index(text, "---NEW CODE---")
-	codeEnd := strings.Index(text, "---END NEW CODE---")
-	diffStart := strings.Index(text, "---UNIFIED DIFF---")
-	diffEnd := strings.Index(text, "---END UNIFIED DIFF---")
-	if cssStart >= 0 && cssEnd > cssStart {
-		newCSS = strings.TrimSpace(text[cssStart+12 : cssEnd])
-	}
-	if codeStart >= 0 && codeEnd > codeStart {
-		newCode = strings.TrimSpace(text[codeStart+12 : codeEnd])
-		newCode = cleanCodeBlock(newCode)
-	}
-	if diffStart >= 0 && diffEnd > diffStart {
-		unifiedDiff = strings.TrimSpace(text[diffStart+17 : diffEnd])
-	}
-	return newCSS, newCode, unifiedDiff
 }

@@ -1,10 +1,10 @@
 # Code Commenter Live Agent
 
-A hackathon-compliant web app: describe a coding task (text or live voice), get dynamically generated CSS and code with a typing effect and Gemini Live API voiceover, then request changes via text or voice.
+A hackathon-compliant web app: describe a coding task (text or live voice), get dynamically generated CSS and code with a typing effect and Gemini Live API voiceover.
 
 ## Requirements
 
-- **Gemini 3.1** for all generation (task spec, CSS, code, diff).
+- **Gemini 3.1** for all generation (task spec, CSS, code).
 - **Gemini Live API** for real-time voice (mandatory).
 - **Google Cloud** for hosting the backend.
 
@@ -53,7 +53,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Enter a task (e.g. “A React counter with increment and decrement”), choose language, click Generate. Use “Request a change” to get updated CSS and code.
+Open [http://localhost:3000](http://localhost:3000). Enter a task (e.g. “A React counter with increment and decrement”), choose language, click Generate.
 
 ### 3. Run with Docker Compose
 
@@ -83,8 +83,8 @@ Then set `NEXT_PUBLIC_API_URL` to your Cloud Run URL when building/serving the f
 
 ## Repo layout
 
-- **`api/`** — Go backend: POST `/task`, POST `/task/:id/change`, WebSocket `GET /live` (Live API proxy).
-- **`web/`** — Next.js frontend: task input, code view with typing effect, dynamic CSS, change loop.
+- **`api/`** — Go backend: POST `/task`, WebSocket `GET /live` (Live API proxy).
+- **`web/`** — Next.js frontend: task input, code view with typing effect, dynamic CSS.
 - **`doc/architecture.md`** — Architecture and data flow.
 
 ## Architecture diagram
@@ -96,8 +96,52 @@ See [doc/architecture.md](doc/architecture.md) for the Mermaid diagram (Browser 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST   | `/task` | Submit task (text), get `id`, `css`, `code`, `spec`, `narration`. |
-| POST   | `/task/:id/change` | Send change message, get updated `css`, `code`, `unifiedDiff`. |
 | GET    | `/live` | WebSocket: proxy to Gemini Live API for voice in/out. |
+
+## Embeddable job player
+
+You can embed a previously generated job player on any site using one script.
+
+### Script usage
+
+```html
+<div id="my-player"></div>
+<script
+  src="https://your-web-domain.com/embed-player.js"
+  data-code-commenter-embed
+  data-job-id="YOUR_JOB_UUID"
+  data-target="#my-player"
+  data-width="100%"
+  data-height="640"
+></script>
+```
+
+Supported script attributes:
+
+- `data-job-id` (required): job UUID to render.
+- `data-target` (optional): CSS selector for mount element. If omitted, a mount node is inserted after the script tag.
+- `data-width` (optional): iframe width (`100%`, `900px`, etc). Default `100%`.
+- `data-height` (optional): iframe height in px or CSS units. Default `640`.
+- `data-min-height` (optional): minimum iframe height. Default `360`.
+- `data-autoplay` (optional): `true`/`1` to append autoplay hint.
+
+You can also pass the job id in the script URL query:
+
+```html
+<script src="https://your-web-domain.com/embed-player.js?jobId=YOUR_JOB_UUID"></script>
+```
+
+### Deployment requirements
+
+- Web app serves `embed-player.js` and the embed route `/embed/{jobId}`.
+- Frontend env: `NEXT_PUBLIC_API_URL` points to your API deployment.
+- API env: `ALLOWED_ORIGINS` includes your web domain origin (and any local dev origin you need), for example:
+
+```bash
+ALLOWED_ORIGINS=https://your-web-domain.com,http://localhost:3000
+```
+
+If a job cannot be loaded, the embed route shows an in-frame error message.
 
 ## Hackathon checklist
 

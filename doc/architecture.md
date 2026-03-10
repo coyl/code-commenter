@@ -2,7 +2,7 @@
 
 ## Overview
 
-Code Commenter is a hackathon-compliant web app where users describe a coding task (text or live voice), receive dynamically generated CSS and code with a typing effect and optional Gemini Live API voiceover, then request changes via text or voice to get updated CSS and code diffs.
+Code Commenter is a hackathon-compliant web app where users describe a coding task (text or live voice), receive dynamically generated CSS and code with a typing effect and optional Gemini Live API voiceover.
 
 ## Mandatory tech
 
@@ -50,26 +50,19 @@ flowchart LR
 3. **Voiceover (Live API):** Optional. Frontend can connect to `GET /live` (WebSocket proxy to Gemini Live API) and send narration text to receive audio stream for playback.
 4. **Response:** API returns `{ id, css, code, spec, narration }`. Frontend injects CSS into `#dynamic-theme`, renders code with a typing effect, and can play voiceover via Live WebSocket.
 
-### Change loop
-
-1. **Input:** User types (or speaks via Live) a change request, e.g. “make the button blue”.
-2. **Backend:** POST `/task/:id/change` with `{ message }`. Backend sends current CSS, code, and message to Gemini 3.1; receives updated CSS, full new code, and unified diff.
-3. **Frontend:** Replaces dynamic CSS and animates code update (typing effect). Optional: request a short “what changed” voiceover via Live API.
-
 ## Components
 
 | Component        | Role                                                                 |
 |-----------------|----------------------------------------------------------------------|
 | **Frontend**    | Next.js app: task form, code view with typing effect, dynamic CSS, Live WebSocket for voice. |
-| **Backend**     | Go HTTP server: `POST /task`, `POST /task/:id/change`, `GET /live` (WebSocket proxy to Live API). |
-| **Gemini 3.1**  | All generation: spec, CSS, code, change (new CSS + new code + diff). |
+| **Backend**     | Go HTTP server: `POST /task`, `GET /live` (WebSocket proxy to Live API). |
+| **Gemini 3.1**  | All generation: spec, CSS, code. |
 | **Live API**    | Real-time voice in/out over WebSocket (mandatory); proxied by backend so API key stays server-side. |
 | **Session store** | In-memory store keyed by task `id` (MVP); can be replaced by Firestore/Cloud SQL later. |
 
 ## API
 
 - `POST /task` — Body: `{ "task": string, "language": string }`. Returns `{ id, css, code, spec, narration }`.
-- `POST /task/:id/change` — Body: `{ "message": string }`. Returns `{ css, code, unifiedDiff }`.
 - `GET /live` — WebSocket upgrade. Server proxies to Gemini Live API; client sends/receives Live API message format (setup, realtimeInput, server content).
 
 ## Environment

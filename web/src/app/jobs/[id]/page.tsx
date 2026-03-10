@@ -114,6 +114,7 @@ export default function JobPage() {
         segments={segments}
         displayedCode={displayedCode}
         onDisplayedCodeChange={setDisplayedCode}
+        jobId={id}
       />
     </main>
   );
