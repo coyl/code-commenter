@@ -8,7 +8,7 @@ import React, {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { usePCMPlayer } from "@/lib/audio";
+import { audioDurationSeconds, usePCMPlayer } from "@/lib/audio";
 import { getHTMLChunks, typingSpeedFor80Percent } from "@/lib/codePlayer";
 import type { Segment } from "@/domain/stream";
 
@@ -23,6 +23,8 @@ export type CodePlayerProps = {
   displayedCode: string;
   onDisplayedCodeChange: (html: string) => void;
   sessionId?: string | null;
+  /** When set, show a button that opens the job view (e.g. /jobs/{jobId}) on the current origin (iframe-friendly). */
+  jobId?: string | null;
   loading?: boolean;
   /** When provided (e.g. main page streaming), last segment will wait for next segment instead of stopping. */
   streamEndedRef?: React.MutableRefObject<boolean>;
@@ -34,6 +36,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     displayedCode,
     onDisplayedCodeChange,
     sessionId = null,
+    jobId = null,
     loading = false,
     streamEndedRef,
   },
@@ -41,8 +44,14 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
 ) {
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
   const [currentNarration, setCurrentNarration] = useState("");
+  const [narrationDurationMs, setNarrationDurationMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
+  const [copyJustDone, setCopyJustDone] = useState(false);
+  const [narrationReplayKey, setNarrationReplayKey] = useState(0);
+  const [embedPopupOpen, setEmbedPopupOpen] = useState(false);
+  const [embedCopied, setEmbedCopied] = useState(false);
+  const embedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const codeContainerRef = useRef<HTMLPreElement>(null);
   const streamCodeBufferRef = useRef("");
@@ -51,6 +60,9 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   const isPlayingRef = useRef(false);
   const segmentsRef = useRef<Segment[]>([]);
   const waitingForSegmentRef = useRef<number | null>(null);
+  const narrationContainerRef = useRef<HTMLDivElement>(null);
+  const narrationInnerRef = useRef<HTMLDivElement>(null);
+  const [narrationScrollPx, setNarrationScrollPx] = useState(0);
 
   const { playChunk: playAudioChunk, stop: stopAudio, unlock: unlockAudio, remainingMs: audioRemainingMs } = usePCMPlayer();
 
@@ -74,6 +86,25 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     const el = codeContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight - el.clientHeight;
   }, [displayedCode]);
+
+  // Measure narration line vs container; only scroll when text is wider than container
+  useEffect(() => {
+    if (!currentNarration) {
+      setNarrationScrollPx(0);
+      return;
+    }
+    const id = requestAnimationFrame(() => {
+      const container = narrationContainerRef.current;
+      const inner = narrationInnerRef.current;
+      if (!container || !inner) {
+        setNarrationScrollPx(0);
+        return;
+      }
+      const overflow = inner.scrollWidth - container.clientWidth;
+      setNarrationScrollPx(overflow > 0 ? overflow : 0);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [currentNarration, currentSegmentIndex]);
 
   const typeSegment = useCallback(
     (
@@ -112,6 +143,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     (i: number) => {
       const segs = segmentsRef.current;
       if (i < 0 || i >= segs.length) return;
+      setNarrationReplayKey((k) => k + 1);
       setHasStartedPlayback(true);
       if (playNextTimeoutRef.current) {
         clearTimeout(playNextTimeoutRef.current);
@@ -124,14 +156,42 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
       }
       setIsPlaying(true);
       const seg = segs[i];
+      const hasAudio = seg.audioChunks && seg.audioChunks.length > 0;
+
+      if (!hasAudio) {
+        const codeSoFar = segs
+          .slice(0, i + 1)
+          .map((s) => s.code)
+          .join("");
+        onDisplayedCodeChange(codeSoFar);
+        streamCodeBufferRef.current = codeSoFar;
+        const nextIndex = i + 1;
+        setCurrentSegmentIndex(nextIndex);
+        setCurrentNarration("");
+        setNarrationDurationMs(0);
+        playNextTimeoutRef.current = setTimeout(() => {
+          playNextTimeoutRef.current = null;
+          if (!isPlayingRef.current) return;
+          const currentLen = segmentsRef.current.length;
+          if (nextIndex < currentLen) replaySegment(nextIndex);
+          else if (streamEndedRef && !streamEndedRef.current) {
+            waitingForSegmentRef.current = nextIndex;
+          } else setIsPlaying(false);
+        }, 50);
+        return;
+      }
+
+      const durationMs = Math.round(audioDurationSeconds(seg.audioChunks) * 1000);
+      setCurrentSegmentIndex(i);
+      setCurrentNarration(seg.narration ?? "");
+      setNarrationDurationMs(durationMs);
+
       const codeSoFar = segs
         .slice(0, i)
         .map((s) => s.code)
         .join("");
       streamCodeBufferRef.current = codeSoFar;
       onDisplayedCodeChange(codeSoFar);
-      setCurrentSegmentIndex(i);
-      setCurrentNarration(seg.narration ?? "");
       const onComplete = () => {
         const remaining = Math.max(200, audioRemainingMs());
         playNextTimeoutRef.current = setTimeout(() => {
@@ -221,6 +281,50 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     }
   }, [isPlaying, currentSegmentIndex, replaySegment, stopCurrentPlayback, unlockAudio]);
 
+  const fullCodePlain = segments.map((s) => s.codePlain ?? s.code).join("");
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleCopyFullCode = useCallback(() => {
+    if (!fullCodePlain) return;
+    navigator.clipboard.writeText(fullCodePlain).then(() => {
+      if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+      setCopyJustDone(true);
+      copyResetTimerRef.current = setTimeout(() => {
+        setCopyJustDone(false);
+        copyResetTimerRef.current = null;
+      }, 2000);
+    }).catch(() => {});
+  }, [fullCodePlain]);
+
+  useEffect(() => () => {
+    if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+    if (embedResetTimerRef.current) clearTimeout(embedResetTimerRef.current);
+  }, []);
+
+  const embedSnippet =
+    typeof window !== "undefined" && jobId
+      ? `<div id="my-player"></div>
+<script
+  src="${window.location.origin}/embed-player.js"
+  data-code-commenter-embed
+  data-job-id="${jobId.replace(/"/g, "&quot;")}"
+  data-target="#my-player"
+  data-width="100%"
+  data-height="640"
+></script>`
+      : "";
+
+  const handleCopyEmbed = useCallback(() => {
+    if (!embedSnippet) return;
+    navigator.clipboard.writeText(embedSnippet).then(() => {
+      if (embedResetTimerRef.current) clearTimeout(embedResetTimerRef.current);
+      setEmbedCopied(true);
+      embedResetTimerRef.current = setTimeout(() => {
+        setEmbedCopied(false);
+        embedResetTimerRef.current = null;
+      }, 2000);
+    }).catch(() => {});
+  }, [embedSnippet]);
+
   const cumLengths: number[] = [0];
   for (const s of segments) cumLengths.push(cumLengths[cumLengths.length - 1] + s.code.length);
 
@@ -228,8 +332,9 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   const minLastFlex = Math.max(totalLength * 0.05, 1);
 
   return (
+    <>
     <section className="mb-6">
-      <h2 className="text-sm font-medium text-zinc-400 mb-2">Code view</h2>
+      <style>{`@keyframes codePlayerNarrationScroll { from { transform: translateX(0); } to { transform: translateX(var(--narration-scroll-end, 0)); } }`}</style>
       <div
         id="code-view"
         className={`overflow-hidden border border-zinc-700 bg-zinc-900 h-[400px] flex flex-col ${
@@ -238,7 +343,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
       >
         <pre
           ref={codeContainerRef}
-          className="p-4 text-sm overflow-y-auto overflow-x-hidden font-mono whitespace-pre text-zinc-100 flex-1 min-h-0 scrollbar-hide"
+          className="p-4 text-sm overflow-y-auto overflow-x-hidden font-mono whitespace-pre-wrap break-words text-zinc-100 flex-1 min-h-0 scrollbar-hide"
         >
           {segments.length > 0 ? (
             <>
@@ -313,6 +418,42 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
             <span className="text-xs text-zinc-500 ml-2 select-none">
               {currentSegmentIndex + 1} / {segments.length}
             </span>
+            <div className="ml-auto flex items-center gap-1">
+              {jobId && (
+                <a
+                  href={`/jobs/${encodeURIComponent(jobId)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-700 text-zinc-200 transition-colors"
+                  title="Open job in new tab"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>
+                </a>
+              )}
+              {jobId && (
+                <button
+                  type="button"
+                  onClick={() => setEmbedPopupOpen(true)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-700 text-zinc-200 transition-colors"
+                  title="Embed"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 8 6 12l4 4M14 8l4 4-4 4"/></svg>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleCopyFullCode}
+                disabled={!fullCodePlain}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-700 disabled:opacity-30 disabled:pointer-events-none text-zinc-200 transition-colors"
+                title="Copy full code"
+              >
+                {copyJustDone ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><polyline points="20 6 9 17 4 12"/></svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                )}
+              </button>
+            </div>
           </div>
           <div
             className="mt-1.5 flex h-1.5 w-full rounded-full overflow-hidden bg-zinc-700/60 cursor-pointer"
@@ -342,8 +483,29 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
               );
             })}
           </div>
-          {currentNarration && (
-            <p className="mt-2 text-sm text-zinc-400 italic">{currentNarration}</p>
+          {currentNarration && narrationDurationMs > 0 && (
+            <div
+              ref={narrationContainerRef}
+              className="mt-2 h-5 overflow-hidden text-sm text-zinc-400 italic"
+              aria-live="polite"
+            >
+              <div
+                ref={narrationInnerRef}
+                key={`${currentSegmentIndex}-${narrationReplayKey}`}
+                className="inline-block whitespace-nowrap"
+                style={
+                  narrationScrollPx > 0
+                    ? {
+                        animation: `codePlayerNarrationScroll ${narrationDurationMs / 1000}s linear forwards`,
+                        ["--narration-scroll-end" as string]: `-${narrationScrollPx}px`,
+                        animationPlayState: isPlaying ? "running" : "paused",
+                      }
+                    : undefined
+                }
+              >
+                {currentNarration}
+              </div>
+            </div>
           )}
           {sessionId && (
             <p className="mt-2 text-xs text-zinc-500">
@@ -356,6 +518,68 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
         </div>
       )}
     </section>
+
+    {embedPopupOpen && jobId && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+        onClick={() => setEmbedPopupOpen(false)}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="embed-dialog-title"
+      >
+        <div
+          className="bg-zinc-800 border border-zinc-600 rounded-lg shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-600">
+            <h2 id="embed-dialog-title" className="text-sm font-medium text-zinc-200">
+              Embed
+            </h2>
+            <button
+              type="button"
+              onClick={() => setEmbedPopupOpen(false)}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-zinc-700 text-zinc-400 transition-colors"
+              aria-label="Close"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+          <p className="px-4 pt-3 text-xs text-zinc-400">
+            Copy and paste this code into your page to embed the player.
+          </p>
+          <textarea
+            readOnly
+            value={embedSnippet}
+            className="mx-4 mt-2 p-3 rounded bg-zinc-900 border border-zinc-600 text-zinc-200 font-mono text-xs resize-none w-[calc(100%-2rem)] h-32"
+            spellCheck={false}
+          />
+          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-600">
+            <button
+              type="button"
+              onClick={() => setEmbedPopupOpen(false)}
+              className="px-3 py-1.5 text-sm text-zinc-300 hover:text-zinc-100 hover:bg-zinc-700 rounded transition-colors"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyEmbed}
+              className="px-3 py-1.5 text-sm bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors flex items-center gap-2"
+            >
+              {embedCopied ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-300" aria-hidden><polyline points="20 6 9 17 4 12"/></svg>
+                  Copied!
+                </>
+              ) : (
+                "Copy"
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 });
 

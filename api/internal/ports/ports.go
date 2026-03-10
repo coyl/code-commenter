@@ -38,7 +38,6 @@ type GenerationPort interface {
 	// GenerateWrappingNarrationForUserCode returns a short closing voiceover for user-pasted code (segmentNarrationsSummary is concatenated segment narrations).
 	GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error)
 	GenerateTitle(ctx context.Context, spec, prompt string) (string, error)
-	GenerateChange(ctx context.Context, currentCSS, currentCode, userMessage, language string) (newCSS, newCode, unifiedDiff string, err error)
 }
 
 // AudioPort owns narration -> audio chunk generation.

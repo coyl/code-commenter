@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -73,7 +74,6 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /task", handlers.HandleTask(genAdapter, sessionRepo))
 	mux.HandleFunc("GET /task/stream", handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey))
-	mux.HandleFunc("POST /task/{id}/change", handlers.HandleChange(genAdapter, sessionRepo))
 	if jobRepository.IsEnabled() {
 		mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobRepository))
 	}
@@ -89,8 +89,13 @@ func main() {
 }
 
 func corsMiddleware(next http.Handler, origins string) http.Handler {
+	allowedOrigins := parseAllowedOrigins(origins)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", origins)
+		requestOrigin := r.Header.Get("Origin")
+		if allowOrigin := matchAllowedOrigin(requestOrigin, allowedOrigins); allowOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
@@ -99,4 +104,35 @@ func corsMiddleware(next http.Handler, origins string) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func parseAllowedOrigins(origins string) []string {
+	if strings.TrimSpace(origins) == "" {
+		return nil
+	}
+	parts := strings.Split(origins, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		origin := strings.TrimSpace(part)
+		if origin == "" {
+			continue
+		}
+		out = append(out, origin)
+	}
+	return out
+}
+
+func matchAllowedOrigin(requestOrigin string, allowedOrigins []string) string {
+	if len(allowedOrigins) == 0 || requestOrigin == "" {
+		return ""
+	}
+	for _, origin := range allowedOrigins {
+		if origin == "*" {
+			return "*"
+		}
+		if requestOrigin == origin {
+			return requestOrigin
+		}
+	}
+	return ""
 }

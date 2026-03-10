@@ -65,9 +65,6 @@ func (a *Adapter) GenerateWrappingNarrationForUserCode(ctx context.Context, segm
 func (a *Adapter) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
 	return a.Client.GenerateTitle(ctx, spec, prompt)
 }
-func (a *Adapter) GenerateChange(ctx context.Context, currentCSS, currentCode, userMessage, language string) (string, string, string, error) {
-	return a.Client.GenerateChange(ctx, currentCSS, currentCode, userMessage, language)
-}
 
 func (a *Adapter) GenerateAudioChunks(ctx context.Context, narration string) ([]string, error) {
 	chunks := make([]string, 0, 32)

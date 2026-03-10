@@ -1,6 +1,6 @@
 import { getApiBase } from "@/config";
 import type { ApiPort } from "@/ports/api";
-import type { TaskResponse, ChangeResponse, JobResponse } from "@/domain/api";
+import type { TaskResponse, JobResponse } from "@/domain/api";
 
 function getBase(): string {
   return getApiBase();
@@ -20,15 +20,6 @@ export const fetchApiAdapter: ApiPort = {
       body: JSON.stringify({ task, language, narration_language: narrationLanguage }),
     });
     return parseJson<TaskResponse>(res);
-  },
-
-  async postChange(sessionId: string, message: string): Promise<ChangeResponse> {
-    const res = await fetch(`${getBase()}/task/${sessionId}/change`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
-    return parseJson<ChangeResponse>(res);
   },
 
   async getJob(jobId: string): Promise<JobResponse> {
