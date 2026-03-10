@@ -72,16 +72,19 @@ type SegmentStored struct {
 	Narration string `json:"narration"`
 }
 
-// ResultStored is the JSON we store as result.json (full code + segments without audio).
+// ResultStored is the JSON we store as result.json (full code + segments + metadata).
 type ResultStored struct {
-	RawJSON       string           `json:"rawJson"`
-	FullCode      string           `json:"fullCode"`
-	FullCodePlain string           `json:"fullCodePlain"`
-	Segments      []SegmentStored  `json:"segments"`
+	RawJSON          string          `json:"rawJson"`
+	FullCode         string          `json:"fullCode"`
+	FullCodePlain    string          `json:"fullCodePlain"`
+	CSS              string          `json:"css"`
+	Title            string          `json:"title"`
+	NarrationLang    string          `json:"narrationLang"`
+	Segments         []SegmentStored `json:"segments"`
 }
 
-// UploadJob writes prompt, result JSON, and per-segment PCM files under jobID/.
-func (c *Client) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain string, segments []SegmentStored, segmentAudio [][]byte) error {
+// UploadJob writes prompt, result JSON (with css, title, narrationLang), and per-segment PCM files under jobID/.
+func (c *Client) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang string, segments []SegmentStored, segmentAudio [][]byte) error {
 	if c.bucket == "" {
 		return nil
 	}
@@ -97,6 +100,9 @@ func (c *Client) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode
 		RawJSON:       rawJSON,
 		FullCode:      fullCode,
 		FullCodePlain: fullCodePlain,
+		CSS:           css,
+		Title:         title,
+		NarrationLang: narrationLang,
 		Segments:      segments,
 	}
 	resultBody, err := json.Marshal(result)
@@ -124,10 +130,13 @@ func (c *Client) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode
 
 // JobLoaded is the response for loading a job (segments with audio as base64).
 type JobLoaded struct {
-	Prompt   string   `json:"prompt"`
-	RawJSON  string   `json:"rawJson"`
-	FullCode string   `json:"fullCode"`
-	Segments []SegmentWithAudio `json:"segments"`
+	Prompt         string             `json:"prompt"`
+	RawJSON        string             `json:"rawJson"`
+	FullCode       string             `json:"fullCode"`
+	CSS            string             `json:"css"`
+	Title          string             `json:"title"`
+	NarrationLang  string             `json:"narrationLang"`
+	Segments       []SegmentWithAudio `json:"segments"`
 }
 
 // SegmentWithAudio has one audio chunk (base64) for playback.
@@ -162,10 +171,13 @@ func (c *Client) GetJob(ctx context.Context, jobID string) (*JobLoaded, error) {
 	}
 
 	out := &JobLoaded{
-		Prompt:   string(prompt),
-		RawJSON:  result.RawJSON,
-		FullCode: result.FullCode,
-		Segments: make([]SegmentWithAudio, len(result.Segments)),
+		Prompt:        string(prompt),
+		RawJSON:       result.RawJSON,
+		FullCode:      result.FullCode,
+		CSS:           result.CSS,
+		Title:         result.Title,
+		NarrationLang: result.NarrationLang,
+		Segments:      make([]SegmentWithAudio, len(result.Segments)),
 	}
 	for i := range result.Segments {
 		out.Segments[i] = SegmentWithAudio{
