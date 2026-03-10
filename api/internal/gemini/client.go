@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,6 +12,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/genai"
 )
+
+// TTSSampleRate is the sample rate of PCM output from Gemini TTS (24 kHz, 16-bit LE).
+const TTSSampleRate = 24000
 
 // Client wraps Gemini 3.1 for task spec, CSS, code, and diff generation.
 type Client struct {
@@ -493,4 +497,137 @@ func parseSpecAndNarration(text string) (spec, narration string) {
 		spec = strings.TrimSpace(text[specIdx+5:])
 	}
 	return spec, text
+}
+
+// timestampsSchema returns a JSON schema for structured output: array of { start_sec }.
+func timestampsSchema(numSegments int) *genai.Schema {
+	return &genai.Schema{
+		Type: genai.TypeArray,
+		Items: &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"start_sec": {
+					Type:        genai.TypeNumber,
+					Description: "Start time of this narration segment in seconds (float, 0-indexed). The first segment should start at 0.0.",
+				},
+			},
+			Required: []string{"start_sec"},
+		},
+		MinItems: ptrInt64(int64(numSegments)),
+		MaxItems: ptrInt64(int64(numSegments)),
+	}
+}
+
+func ptrInt64(v int64) *int64 { return &v }
+
+// TimestampEntry is the LLM's structured response for one segment.
+type TimestampEntry struct {
+	StartSec float64 `json:"start_sec"`
+}
+
+// FindAudioTimestamps sends combined TTS audio + the ordered narration texts to a cheap model
+// and asks it to return the start-time of each narration segment. Returns one offset per narration.
+func (c *Client) FindAudioTimestamps(ctx context.Context, model string, wav []byte, narrations []string) ([]float64, error) {
+	start := time.Now()
+	defer func() {
+		log.Info().Str("op", "FindAudioTimestamps").Str("model", model).Int("segments", len(narrations)).Dur("dur", time.Since(start)).Msg("llm request")
+	}()
+
+	var numbered strings.Builder
+	for i, n := range narrations {
+		fmt.Fprintf(&numbered, "%d. %s\n", i+1, strings.TrimSpace(n))
+	}
+
+	systemPrompt := fmt.Sprintf(`You are an audio timestamp detector. You are given an audio file containing %d narration segments spoken one after another.
+Listen to the audio carefully and return the start time (in seconds, as a float) of each segment.
+The first segment always starts at 0.0.
+Return exactly %d entries.`, len(narrations), len(narrations))
+
+	userPrompt := fmt.Sprintf("Here are the narration texts in the exact order they appear in the audio:\n\n%s", numbered.String())
+
+	cfg := &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{{Text: systemPrompt}},
+		},
+		ResponseMIMEType: "application/json",
+		ResponseSchema:   timestampsSchema(len(narrations)),
+	}
+	result, err := c.client.Models.GenerateContent(ctx, model, []*genai.Content{
+		{Role: "user", Parts: []*genai.Part{
+			{InlineData: &genai.Blob{Data: wav, MIMEType: "audio/wav"}},
+			{Text: userPrompt},
+		}},
+	}, cfg)
+	if err != nil {
+		log.Error().Err(err).Str("op", "FindAudioTimestamps").Str("model", model).Dur("dur", time.Since(start)).Msg("llm request")
+		return nil, fmt.Errorf("FindAudioTimestamps: %w", err)
+	}
+	text := extractText(result)
+	var entries []TimestampEntry
+	if err := json.Unmarshal([]byte(text), &entries); err != nil {
+		return nil, fmt.Errorf("parse timestamps JSON: %w\nraw: %.500s", err, text)
+	}
+	if len(entries) != len(narrations) {
+		return nil, fmt.Errorf("expected %d timestamps, got %d", len(narrations), len(entries))
+	}
+	offsets := make([]float64, len(entries))
+	for i, e := range entries {
+		offsets[i] = e.StartSec
+	}
+	return offsets, nil
+}
+
+// PCMToWAV wraps raw 16-bit LE mono PCM data in a WAV header.
+func PCMToWAV(pcm []byte, sampleRate int) []byte {
+	dataLen := len(pcm)
+	fileLen := 36 + dataLen
+	buf := make([]byte, 44+dataLen)
+	copy(buf[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(fileLen))
+	copy(buf[8:12], "WAVE")
+	copy(buf[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(buf[16:20], 16) // PCM chunk size
+	binary.LittleEndian.PutUint16(buf[20:22], 1)  // PCM format
+	binary.LittleEndian.PutUint16(buf[22:24], 1)  // mono
+	binary.LittleEndian.PutUint32(buf[24:28], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(buf[28:32], uint32(sampleRate*2)) // byte rate (16-bit mono)
+	binary.LittleEndian.PutUint16(buf[32:34], 2)                   // block align
+	binary.LittleEndian.PutUint16(buf[34:36], 16)                  // bits per sample
+	copy(buf[36:40], "data")
+	binary.LittleEndian.PutUint32(buf[40:44], uint32(dataLen))
+	copy(buf[44:], pcm)
+	return buf
+}
+
+// SplitPCMAtOffsets splits raw 16-bit LE PCM into segments at the given second offsets.
+// offsets[0] should be 0.0 (or close to it); offsets must be sorted ascending.
+func SplitPCMAtOffsets(pcm []byte, sampleRate int, offsets []float64) [][]byte {
+	if len(offsets) == 0 {
+		return nil
+	}
+	totalSamples := len(pcm) / 2
+	out := make([][]byte, 0, len(offsets))
+	for i, off := range offsets {
+		startSample := int(off * float64(sampleRate))
+		if startSample < 0 {
+			startSample = 0
+		}
+		if startSample > totalSamples {
+			startSample = totalSamples
+		}
+		var endSample int
+		if i+1 < len(offsets) {
+			endSample = int(offsets[i+1] * float64(sampleRate))
+		} else {
+			endSample = totalSamples
+		}
+		if endSample > totalSamples {
+			endSample = totalSamples
+		}
+		if endSample < startSample {
+			endSample = startSample
+		}
+		out = append(out, pcm[startSample*2:endSample*2])
+	}
+	return out
 }

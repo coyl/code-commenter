@@ -43,6 +43,9 @@ type GenerationPort interface {
 // AudioPort owns narration -> audio chunk generation.
 type AudioPort interface {
 	GenerateAudioChunks(ctx context.Context, narration string) ([]string, error)
+	// GenerateAudioBatched runs one TTS request for all narrations (joined with pauses), then splits by silence.
+	// narrations[i] is segment i; len(narrations) may include a final wrapping segment. Returns map[index]->base64 chunks.
+	GenerateAudioBatched(ctx context.Context, narrations []string) (map[int][]string, error)
 }
 
 // RendererPort converts source code into renderable HTML.

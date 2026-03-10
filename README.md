@@ -24,6 +24,10 @@ export PORT=8080
 export GEMINI_MODEL=gemini-3-flash-preview
 export GEMINI_LIVE_MODEL=gemini-2.5-flash-preview-native-audio-05-20
 export ALLOWED_ORIGINS=http://localhost:3000
+# TTS: default is one batched call per task (saves RPD). Set to "on" for one TTS request per segment.
+# export TTS_PER_SEGMENT=on
+# Model for audio timestamp detection in batched TTS (default: gemini-2.5-flash).
+# export TIMESTAMP_MODEL=gemini-2.5-flash
 ```
 
 For the frontend, create `web/.env.local`:

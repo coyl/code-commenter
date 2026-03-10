@@ -41,7 +41,7 @@ func main() {
 
 	st := store.New()
 	sessionRepo := &storeadapter.Adapter{Store: st}
-	genAdapter := &geminiadapter.Adapter{Client: gc, TTSModel: cfg.TTSModel}
+	genAdapter := &geminiadapter.Adapter{Client: gc, TTSModel: cfg.TTSModel, TimestampModel: cfg.TimestampModel}
 	rendererAdapter := highlightadapter.Adapter{}
 
 	var jobStore *jobstore.Client
@@ -63,12 +63,13 @@ func main() {
 	}
 
 	orchestrator := &appalignment.StreamOrchestrator{
-		Generation: genAdapter,
-		Audio:      genAdapter,
-		Renderer:   rendererAdapter,
-		Sessions:   sessionRepo,
-		Jobs:       jobRepository,
-		Aligner:    domainalignment.Service{},
+		Generation:     genAdapter,
+		Audio:          genAdapter,
+		Renderer:       rendererAdapter,
+		Sessions:       sessionRepo,
+		Jobs:           jobRepository,
+		Aligner:        domainalignment.Service{},
+		TTSPerSegment:  cfg.TTSPerSegment,
 	}
 
 	mux := http.NewServeMux()

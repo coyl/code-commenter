@@ -50,6 +50,17 @@ func (f fakeAudio) GenerateAudioChunks(_ context.Context, narration string) ([]s
 	return []string{"audio-" + narration}, nil
 }
 
+func (f fakeAudio) GenerateAudioBatched(_ context.Context, narrations []string) (map[int][]string, error) {
+	out := make(map[int][]string, len(narrations))
+	for i, n := range narrations {
+		if err := f.errFor[n]; err != nil {
+			return nil, err
+		}
+		out[i] = []string{"batched-" + n}
+	}
+	return out, nil
+}
+
 type fakeRenderer struct{}
 
 func (fakeRenderer) CodeToHTML(code, _ string) (string, error) {
@@ -126,14 +137,15 @@ func TestOrchestratorContinuesWhenSegmentTTSFails(t *testing.T) {
 	sessions := &fakeSessions{}
 	sink := &captureSink{}
 	o := &StreamOrchestrator{
-		Generation: fakeGeneration{segments: []ports.CodeSegment{
+		Generation:     fakeGeneration{segments: []ports.CodeSegment{
 			{Code: "fmt.Println(1)", Narration: "bad-segment"},
 		}},
-		Audio:    fakeAudio{errFor: map[string]error{"bad-segment": errors.New("tts down")}},
-		Renderer: fakeRenderer{},
-		Sessions: sessions,
-		Jobs:     fakeJobs{},
-		Aligner:  domain.Service{},
+		Audio:          fakeAudio{errFor: map[string]error{"bad-segment": errors.New("tts down")}},
+		Renderer:       fakeRenderer{},
+		Sessions:       sessions,
+		Jobs:           fakeJobs{},
+		Aligner:        domain.Service{},
+		TTSPerSegment:  true, // per-segment mode: one segment can fail and we still emit session
 	}
 
 	_, err := o.Run(context.Background(), StreamRequest{Task: "x", Language: "go"}, sink)
