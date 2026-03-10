@@ -1,4 +1,6 @@
 (() => {
+  const currentScript = document.currentScript;
+
   function readConfig(scriptEl) {
     const srcUrl = new URL(scriptEl.src, window.location.href);
     const dataset = scriptEl.dataset || {};
@@ -89,8 +91,8 @@
       return;
     }
 
-    if (document.currentScript) {
-      mountEmbed(document.currentScript);
+    if (currentScript) {
+      mountEmbed(currentScript);
     }
   }
 
