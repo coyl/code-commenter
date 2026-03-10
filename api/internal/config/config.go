@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 )
 
 // Config holds application configuration from environment.
@@ -11,6 +12,8 @@ type Config struct {
 	GeminiModel    string // gemini-3-flash-preview for generation
 	LiveAPIModel   string // Live API model for voice; fallback to TTS if not available
 	TTSModel       string // REST TTS model when Live API unavailable (e.g. gemini-2.5-pro-preview-tts)
+	TTSPerSegment  bool   // if true (TTS_PER_SEGMENT=on), one TTS request per segment; default is single batched call
+	TimestampModel string // model for audio timestamp detection in batched TTS (default gemini-2.5-flash)
 	AllowedOrigins string // CORS origins (comma-separated)
 	S3Bucket       string // S3 bucket for job storage (empty = disabled)
 	S3Region       string // AWS region for S3 (e.g. us-east-1)
@@ -41,6 +44,15 @@ func Load() *Config {
 	if ttsModel == "" {
 		ttsModel = "gemini-2.5-flash-preview-tts"
 	}
+	ttsPerSegment := false
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("TTS_PER_SEGMENT"))) {
+	case "on", "1", "true":
+		ttsPerSegment = true
+	}
+	timestampModel := os.Getenv("TIMESTAMP_MODEL")
+	if timestampModel == "" {
+		timestampModel = "gemini-2.5-flash"
+	}
 	origins := os.Getenv("ALLOWED_ORIGINS")
 	if origins == "" {
 		origins = "http://localhost:3000"
@@ -62,6 +74,8 @@ func Load() *Config {
 		GeminiModel:    model,
 		LiveAPIModel:   liveModel,
 		TTSModel:       ttsModel,
+		TTSPerSegment:  ttsPerSegment,
+		TimestampModel: timestampModel,
 		AllowedOrigins: origins,
 		S3Bucket:       s3Bucket,
 		S3Region:       s3Region,

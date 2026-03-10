@@ -36,12 +36,13 @@ type StreamRequest struct {
 
 // StreamOrchestrator coordinates generation, alignment, and persistence.
 type StreamOrchestrator struct {
-	Generation ports.GenerationPort
-	Audio      ports.AudioPort
-	Renderer   ports.RendererPort
-	Sessions   ports.SessionRepository
-	Jobs       ports.JobRepository
-	Aligner    domain.Service
+	Generation   ports.GenerationPort
+	Audio        ports.AudioPort
+	Renderer     ports.RendererPort
+	Sessions     ports.SessionRepository
+	Jobs         ports.JobRepository
+	Aligner      domain.Service
+	TTSPerSegment bool // if true, one TTS request per segment (env TTS_PER_SEGMENT=on); default false = single batched call
 }
 
 // Run executes the end-to-end stream flow and emits transport-neutral events.
@@ -119,33 +120,71 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	}
 	log.Info().Str("phase", "segments").Int("n", len(segments)).Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
-	// Token bucket: 10 TTS requests per minute (gemini-2.5-flash-tts quota). Burst 1 so we never start more than 1 per 6s.
-	ttsLimiter := rate.NewLimiter(rate.Every(6*time.Second), 1)
+	var wrapping string
+	var wrapAudio []string
 	audioByIndex := make(map[int]domain.SegmentAudio, len(segments))
-	audioResults := make(chan domain.SegmentAudio, len(segments)+1)
-	var wg sync.WaitGroup
-	for i, seg := range segments {
-		if seg.Narration == "" {
-			continue
-		}
-		idx, narrationText := i, seg.Narration
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := ttsLimiter.Wait(ctx); err != nil {
-				audioResults <- domain.SegmentAudio{Index: idx, Err: err}
-				return
+
+	if o.TTSPerSegment {
+		// One TTS request per segment (and one for wrapping); respects RPD but uses more quota.
+		ttsLimiter := rate.NewLimiter(rate.Every(6*time.Second), 1)
+		audioResults := make(chan domain.SegmentAudio, len(segments)+1)
+		var wg sync.WaitGroup
+		for i, seg := range segments {
+			if seg.Narration == "" {
+				continue
 			}
-			chunks, ttsErr := o.Audio.GenerateAudioChunks(ctx, narrationText)
-			audioResults <- domain.SegmentAudio{Index: idx, Chunks: chunks, Err: ttsErr}
+			idx, narrationText := i, seg.Narration
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := ttsLimiter.Wait(ctx); err != nil {
+					audioResults <- domain.SegmentAudio{Index: idx, Err: err}
+					return
+				}
+				chunks, ttsErr := o.Audio.GenerateAudioChunks(ctx, narrationText)
+				audioResults <- domain.SegmentAudio{Index: idx, Chunks: chunks, Err: ttsErr}
+			}()
+		}
+		go func() {
+			wg.Wait()
+			close(audioResults)
 		}()
-	}
-	go func() {
-		wg.Wait()
-		close(audioResults)
-	}()
-	for res := range audioResults {
-		audioByIndex[res.Index] = res
+		for res := range audioResults {
+			audioByIndex[res.Index] = res
+		}
+	} else {
+		// Single batched TTS call for all narrations + wrapping, then split by silence (saves RPD).
+		if userCodeMode {
+			s := segmentNarrationsSummary(segments, 1500)
+			if strings.TrimSpace(s) != "" {
+				wrapping, _ = o.Generation.GenerateWrappingNarrationForUserCode(ctx, s, req.NarrationLanguage)
+			}
+		} else {
+			wrapping, _ = o.Generation.GenerateWrappingNarration(ctx, spec, req.Language, req.NarrationLanguage)
+		}
+		log.Info().Str("phase", "wrapping").Dur("elapsed", time.Since(streamStart)).Msg("stream task (batched)")
+		narrations := make([]string, 0, len(segments)+1)
+		for _, seg := range segments {
+			narrations = append(narrations, seg.Narration)
+		}
+		if wrapping != "" {
+			narrations = append(narrations, wrapping)
+		}
+		if len(narrations) > 0 {
+			batched, batchedErr := o.Audio.GenerateAudioBatched(ctx, narrations)
+			if batchedErr != nil {
+				_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "TTS: " + batchedErr.Error()}))
+				return "", batchedErr
+			}
+			for i := 0; i < len(segments); i++ {
+				if chunks, ok := batched[i]; ok && len(chunks) > 0 {
+					audioByIndex[i] = domain.SegmentAudio{Index: i, Chunks: chunks}
+				}
+			}
+			if wrapping != "" {
+				wrapAudio = batched[len(segments)]
+			}
+		}
 	}
 
 	lang := normalizeLexerLanguage(req.Language)
@@ -207,17 +246,30 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		}
 	}
 
-	wrapAudio := []string{}
-	var wrapping string
-	if userCodeMode {
-		s := segmentNarrationsSummary(segments, 1500)
-		if strings.TrimSpace(s) != "" {
-			wrapping, _ = o.Generation.GenerateWrappingNarrationForUserCode(ctx, s, req.NarrationLanguage)
+	if o.TTSPerSegment {
+		// Per-segment mode: generate wrapping text and TTS now.
+		if userCodeMode {
+			s := segmentNarrationsSummary(segments, 1500)
+			if strings.TrimSpace(s) != "" {
+				wrapping, _ = o.Generation.GenerateWrappingNarrationForUserCode(ctx, s, req.NarrationLanguage)
+			}
+		} else {
+			wrapping, _ = o.Generation.GenerateWrappingNarration(ctx, spec, req.Language, req.NarrationLanguage)
 		}
-	} else {
-		wrapping, _ = o.Generation.GenerateWrappingNarration(ctx, spec, req.Language, req.NarrationLanguage)
+		log.Info().Str("phase", "wrapping").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
+		if wrapping != "" {
+			chunks, ttsErr := o.Audio.GenerateAudioChunks(ctx, wrapping)
+			if ttsErr != nil {
+				log.Error().Err(ttsErr).Msg("TTS wrapping error")
+				if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "TTS: " + ttsErr.Error()})); err != nil {
+					return "", err
+				}
+			} else {
+				wrapAudio = chunks
+			}
+		}
 	}
-	log.Info().Str("phase", "wrapping").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
+	// Emit wrapping segment and its audio (batched mode already has wrapAudio; per-segment just filled it).
 	if wrapping != "" {
 		if err := sink.Emit(o.event(jobID, ports.StreamEvent{
 			Type:      "segment",
@@ -228,18 +280,9 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		})); err != nil {
 			return "", err
 		}
-		chunks, ttsErr := o.Audio.GenerateAudioChunks(ctx, wrapping)
-		if ttsErr != nil {
-			log.Error().Err(ttsErr).Msg("TTS wrapping error")
-			if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "TTS: " + ttsErr.Error()})); err != nil {
+		for _, b64 := range wrapAudio {
+			if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "audio", AudioData: b64})); err != nil {
 				return "", err
-			}
-		} else {
-			wrapAudio = chunks
-			for _, b64 := range chunks {
-				if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "audio", AudioData: b64})); err != nil {
-					return "", err
-				}
 			}
 		}
 	}
