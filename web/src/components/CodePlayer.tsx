@@ -82,6 +82,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   const embedResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const codeContainerRef = useRef<HTMLPreElement>(null);
+  const currentSegmentRef = useRef<HTMLSpanElement | null>(null);
   const streamCodeBufferRef = useRef("");
   const typingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const playNextTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,11 +141,16 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     };
   }, [stopAudio]);
 
-  // Scroll to follow the typing (keep end of content in view)
+  // Keep the current segment (cursor) in view when content overflows
   useEffect(() => {
+    const segmentEl = currentSegmentRef.current;
+    if (segmentEl) {
+      segmentEl.scrollIntoView({ block: "nearest", behavior: "auto" });
+      return;
+    }
     const el = codeContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight - el.clientHeight;
-  }, [displayedCode]);
+  }, [displayedCode, currentSegmentIndex]);
 
   // Measure narration line vs container; only scroll when text is wider than container
   useEffect(() => {
@@ -520,6 +526,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
                 return (
                   <span
                     key={i}
+                    ref={isCurrent ? currentSegmentRef : undefined}
                     className={isCurrent ? "block bg-zinc-800/70 rounded-sm py-0.5 -my-0.5" : undefined}
                   >
                     <span dangerouslySetInnerHTML={{ __html: text }} />

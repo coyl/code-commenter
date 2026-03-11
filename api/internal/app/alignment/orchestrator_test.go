@@ -94,6 +94,14 @@ func (s *captureSink) Emit(e ports.StreamEvent) error {
 	return nil
 }
 
+func eventTypes(events []ports.StreamEvent) []string {
+	out := make([]string, len(events))
+	for i, e := range events {
+		out[i] = e.Type
+	}
+	return out
+}
+
 func TestOrchestratorEmitsCompatibleOrder(t *testing.T) {
 	sessions := &fakeSessions{}
 	sink := &captureSink{}
@@ -119,11 +127,17 @@ func TestOrchestratorEmitsCompatibleOrder(t *testing.T) {
 	if len(sink.events) < 7 {
 		t.Fatalf("expected at least 7 events, got %d", len(sink.events))
 	}
-	wantPrefix := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "session"}
-	for i, want := range wantPrefix {
-		if sink.events[i].Type != want {
-			t.Fatalf("event[%d] type=%s want=%s", i, sink.events[i].Type, want)
+	// Event order must include these types in order (stage events may appear in between).
+	wantOrder := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "session"}
+	idx := 0
+	for _, e := range sink.events {
+		if idx < len(wantOrder) && e.Type == wantOrder[idx] {
+			idx++
 		}
+	}
+	if idx != len(wantOrder) {
+		t.Fatalf("expected event order prefix %v, got %d matches (events: %v)",
+			wantOrder, idx, eventTypes(sink.events))
 	}
 	if sessions.last.ID == "" {
 		t.Fatal("session should be persisted")
