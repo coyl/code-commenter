@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import CodePlayer, { type CodePlayerRef } from "@/components/CodePlayer";
+import GenerationProgress from "@/components/GenerationProgress";
 import { usePCMPlayer } from "@/lib/audio";
 import type { Segment } from "@/domain/stream";
 import { useStreamTask } from "@/features/stream/useStreamTask";
@@ -32,6 +33,7 @@ export default function Home() {
   const [displayedCode, setDisplayedCode] = useState("");
   const [narration, setNarration] = useState("");
   const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [showRawDebug, setShowRawDebug] = useState(false);
@@ -52,6 +54,7 @@ export default function Home() {
       onRawJson: setRawJsonOutput,
       onError: setError,
       onLoading: setLoading,
+      onStage: setStage,
       onStreamEnded: (ended: boolean) => {
         streamEndedRef.current = ended;
       },
@@ -127,7 +130,7 @@ export default function Home() {
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
       <header className="mb-8">
         <h1 className="text-2xl font-bold text-cyan-400">Code Commenter Live Agent</h1>
-        <p className="text-zinc-400 text-sm mt-1">Describe a task → get CSS + code with just-in-time streaming and voiceover.</p>
+        <p className="text-zinc-400 text-sm mt-1">Describe a task → get code with just-in-time streaming and voiceover.</p>
       </header>
 
       <section className="mb-6 p-4 rounded-lg bg-zinc-900/80 border border-zinc-700">
@@ -230,6 +233,8 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {loading && <GenerationProgress stage={stage} />}
 
       {displayError && (
         <div className="mb-4 p-3 rounded bg-red-900/30 border border-red-700 text-red-200 text-sm">

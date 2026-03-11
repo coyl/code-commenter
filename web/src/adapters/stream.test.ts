@@ -20,6 +20,12 @@ describe("stream adapter parseMessage", () => {
     });
   });
 
+  it("parses stage event", () => {
+    const raw = JSON.stringify({ type: "stage", stage: "Generating code segments" });
+    const event = parseMessage(raw);
+    expect(event).toEqual({ type: "stage", stage: "Generating code segments" });
+  });
+
   it("parses code_done with rawJson", () => {
     const raw = JSON.stringify({
       type: "code_done",

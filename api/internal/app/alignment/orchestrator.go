@@ -80,11 +80,13 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 
 	var spec, narration string
 	if userCodeMode {
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Preparing your code"}))
 		spec = "User-provided code snippet for narration."
 		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "spec", Spec: spec, Narration: narration})); err != nil {
 			return "", err
 		}
 	} else {
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating task spec"}))
 		var err error
 		spec, narration, err = o.Generation.GenerateTaskSpec(ctx, req.Task, req.Language, req.NarrationLanguage)
 		log.Info().Str("phase", "spec").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
@@ -97,6 +99,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		}
 	}
 
+	_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating CSS"}))
 	css, err := o.Generation.GenerateCSS(ctx, spec, req.Language)
 	if err != nil {
 		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "error", Error: "css: " + err.Error()}))
@@ -107,6 +110,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	}
 	log.Info().Str("phase", "css").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
+	_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating code segments"}))
 	var segments []ports.CodeSegment
 	var rawSegmentsJSON string
 	if userCodeMode {
@@ -120,6 +124,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 	}
 	log.Info().Str("phase", "segments").Int("n", len(segments)).Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 
+	_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating voiceover"}))
 	var wrapping string
 	var wrapAudio []string
 	audioByIndex := make(map[int]domain.SegmentAudio, len(segments))
@@ -194,6 +199,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		}
 	}
 
+	_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Finalizing"}))
 	lang := normalizeLexerLanguage(req.Language)
 	segmentEntries := make([]domain.Segment, 0, len(segments))
 	var fullPlain strings.Builder
