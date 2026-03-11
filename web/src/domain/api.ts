@@ -1,15 +1,6 @@
 /**
- * API response types (REST). Single source of truth for /task, /jobs/:id.
+ * API response types (REST). Single source of truth for /jobs/:id.
  */
-export type TaskResponse = {
-  id: string;
-  css: string;
-  code: string;
-  spec?: string;
-  narration?: string;
-  voiceoverUrl?: string;
-};
-
 export type JobSegmentStored = {
   code: string;
   codePlain: string;

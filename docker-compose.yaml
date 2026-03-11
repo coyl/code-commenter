@@ -14,12 +14,12 @@ services:
     build:
       context: ./web
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8090}
+        API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8090}
     ports:
       - "3010:3000"
     env_file:
       - .env
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8090
+      - API_URL=http://localhost:8090
     depends_on:
       - api

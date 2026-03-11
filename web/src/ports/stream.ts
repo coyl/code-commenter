@@ -1,7 +1,7 @@
 import type { StreamEvent } from "@/domain/stream";
 
 export type StreamPort = {
-  open(path: string): StreamConnection;
+  open(path: string): Promise<StreamConnection>;
 };
 
 export type StreamConnection = {

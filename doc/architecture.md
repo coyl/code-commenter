@@ -2,7 +2,7 @@
 
 ## Overview
 
-Code Commenter is a hackathon-compliant web app where users describe a coding task (text or live voice), receive dynamically generated CSS and code with a typing effect and optional Gemini Live API voiceover.
+Code Commenter is a hackathon-compliant web app where users describe a coding task (text or live voice), receive dynamically generated CSS and code with a typing effect and Gemini Live API voiceover.
 
 ## Mandatory tech
 
@@ -43,26 +43,23 @@ flowchart LR
 ### First run
 
 1. **Task input:** User enters text (or uses live voice via WebSocket to backend → Gemini Live API for transcript).
-2. **Backend:** POST `/task` with `{ task, language }`. Backend calls Gemini 3.1 for:
-   - Task → structured spec + optional narration script
-   - Spec → CSS block
-   - Spec + language → full code
-3. **Voiceover (Live API):** Optional. Frontend can connect to `GET /live` (WebSocket proxy to Gemini Live API) and send narration text to receive audio stream for playback.
-4. **Response:** API returns `{ id, css, code, spec, narration }`. Frontend injects CSS into `#dynamic-theme`, renders code with a typing effect, and can play voiceover via Live WebSocket.
+2. **Backend:** WebSocket `GET /task/stream` with task/language/code. Backend streams: spec, CSS, code segments, and TTS audio for voiceover. Stages (e.g. "Generating task spec", "Generating voiceover") are emitted for progress.
+3. **Voiceover:** Backend generates narration and TTS per segment; audio is streamed to the client. Frontend can also use `GET /live` (WebSocket proxy to Gemini Live API) for real-time voice.
+4. **Response:** Streamed events (`stage`, `spec`, `css`, `segment`, `audio`, `code_done`). Frontend injects CSS into `#dynamic-theme`, renders code with a typing effect, and plays voiceover in sync with segments.
 
 ## Components
 
 | Component        | Role                                                                 |
 |-----------------|----------------------------------------------------------------------|
 | **Frontend**    | Next.js app: task form, code view with typing effect, dynamic CSS, Live WebSocket for voice. |
-| **Backend**     | Go HTTP server: `POST /task`, `GET /live` (WebSocket proxy to Live API). |
+| **Backend**     | Go HTTP server: WebSocket `GET /task/stream`, `GET /live` (WebSocket proxy to Live API). |
 | **Gemini 3.1**  | All generation: spec, CSS, code. |
 | **Live API**    | Real-time voice in/out over WebSocket (mandatory); proxied by backend so API key stays server-side. |
 | **Session store** | In-memory store keyed by task `id` (MVP); can be replaced by Firestore/Cloud SQL later. |
 
 ## API
 
-- `POST /task` — Body: `{ "task": string, "language": string }`. Returns `{ id, css, code, spec, narration }`.
+- `GET /task/stream` — WebSocket. Client sends JSON with `task`, `language`, optional `code` (your code mode). Server streams `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`.
 - `GET /live` — WebSocket upgrade. Server proxies to Gemini Live API; client sends/receives Live API message format (setup, realtimeInput, server content).
 
 ## Environment

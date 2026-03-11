@@ -8,7 +8,7 @@ import React, {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { audioDurationSeconds, usePCMPlayer } from "@/lib/audio";
+import { audioDurationSeconds, pcmChunksToWavBlob, usePCMPlayer } from "@/lib/audio";
 import { getHTMLChunks, typingSpeedFor80Percent } from "@/lib/codePlayer";
 import type { Segment } from "@/domain/stream";
 
@@ -16,6 +16,23 @@ export type { Segment };
 
 export type CodePlayerRef = {
   playSegment: (i: number) => void;
+};
+
+export type CodePlayerAudio = {
+  playChunk: (base64PCM: string) => void;
+  stop: () => void;
+  unlock: () => void | Promise<void>;
+  remainingMs: () => number;
+  getDebugState?: () => { hasContext: boolean; contextState: string };
+};
+
+export type CodePlayerDebugSample = {
+  contextState: string;
+  hasContext: boolean;
+  isPlaying: boolean;
+  queuedMs: number;
+  playedChunks: number;
+  totalChunks: number;
 };
 
 export type CodePlayerProps = {
@@ -30,6 +47,11 @@ export type CodePlayerProps = {
   streamEndedRef?: React.MutableRefObject<boolean>;
   /** When true (e.g. embed with ?autoplay=1), start playback from segment 0 once segments are ready. */
   autoplay?: boolean;
+  /** Shared audio functions. When provided, CodePlayer uses these instead of its own AudioContext.
+   *  This ensures the AudioContext unlocked in a user gesture (e.g. clicking Generate) is the same one used for playback — critical on iOS. */
+  audio?: CodePlayerAudio;
+  /** Optional debug stream for diagnostics (used by jobs page, not embed). */
+  onDebugSample?: (sample: CodePlayerDebugSample) => void;
 };
 
 const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlayer(
@@ -42,6 +64,8 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     loading = false,
     streamEndedRef,
     autoplay = false,
+    audio: externalAudio,
+    onDebugSample,
   },
   ref
 ) {
@@ -64,14 +88,37 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   const isPlayingRef = useRef(false);
   const segmentsRef = useRef<Segment[]>([]);
   const waitingForSegmentRef = useRef<number | null>(null);
+  /** Incremented on each replaySegment start; used to ignore stale playSegmentAudio promise callbacks (e.g. on iOS when user taps another segment before el.play() resolves). */
+  const playbackGenRef = useRef(0);
   const narrationContainerRef = useRef<HTMLDivElement>(null);
   const narrationInnerRef = useRef<HTMLDivElement>(null);
   const [narrationScrollPx, setNarrationScrollPx] = useState(0);
 
-  const { playChunk: playAudioChunk, stop: stopAudio, unlock: unlockAudio, remainingMs: audioRemainingMs } = usePCMPlayer();
+  const ownAudio = usePCMPlayer();
+  const playAudioChunk = externalAudio?.playChunk ?? ownAudio.playChunk;
+  const stopAudio = externalAudio?.stop ?? ownAudio.stop;
+  const unlockAudio = externalAudio?.unlock ?? ownAudio.unlock;
+  const audioRemainingMs = externalAudio?.remainingMs ?? ownAudio.remainingMs;
+  const getAudioDebugState = externalAudio?.getDebugState ?? ownAudio.getDebugState;
+  const playedChunksRef = useRef(0);
+  const iosAudioRef = useRef<HTMLAudioElement | null>(null);
+  const iosObjectUrlRef = useRef<string | null>(null);
+  const mediaEndsAtRef = useRef(0);
+  const isIOSRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    const ua = navigator.userAgent || "";
+    const platform = navigator.platform || "";
+    const maxTouch = (navigator as Navigator & { maxTouchPoints?: number }).maxTouchPoints ?? 0;
+    isIOSRef.current =
+      /iPad|iPhone|iPod/.test(ua) ||
+      (platform === "MacIntel" && maxTouch > 1);
+  }, []);
 
   useEffect(() => {
     segmentsRef.current = segments;
+    playedChunksRef.current = 0;
   }, [segments]);
 
   useEffect(() => {
@@ -81,6 +128,14 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   useEffect(() => {
     return () => {
       stopAudio();
+      if (iosAudioRef.current) {
+        iosAudioRef.current.pause();
+        iosAudioRef.current.removeAttribute("src");
+      }
+      if (iosObjectUrlRef.current) {
+        URL.revokeObjectURL(iosObjectUrlRef.current);
+        iosObjectUrlRef.current = null;
+      }
       if (typingTimerRef.current) clearInterval(typingTimerRef.current);
     };
   }, [stopAudio]);
@@ -143,6 +198,61 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     [onDisplayedCodeChange]
   );
 
+  const stopIOSAudio = useCallback(() => {
+    mediaEndsAtRef.current = 0;
+    const el = iosAudioRef.current;
+    if (!el) return;
+    try {
+      el.pause();
+      el.currentTime = 0;
+    } catch {
+      // ignore
+    }
+    if (iosObjectUrlRef.current) {
+      URL.revokeObjectURL(iosObjectUrlRef.current);
+      iosObjectUrlRef.current = null;
+    }
+    el.removeAttribute("src");
+    el.load();
+  }, []);
+
+  const playSegmentAudio = useCallback(
+    async (audioChunks: string[]): Promise<number> => {
+      if (audioChunks.length === 0) return 0;
+      const durationMs = Math.round(audioDurationSeconds(audioChunks) * 1000);
+      if (!isIOSRef.current || !iosAudioRef.current) {
+        audioChunks.forEach(playAudioChunk);
+        playedChunksRef.current += audioChunks.length;
+        return durationMs;
+      }
+
+      const el = iosAudioRef.current;
+      stopIOSAudio();
+      const wavBlob = pcmChunksToWavBlob(audioChunks);
+      const url = URL.createObjectURL(wavBlob);
+      iosObjectUrlRef.current = url;
+      el.src = url;
+      el.preload = "auto";
+      el.setAttribute("playsinline", "true");
+      try {
+        await el.play();
+        mediaEndsAtRef.current = Date.now() + durationMs;
+      } catch {
+        mediaEndsAtRef.current = 0;
+      }
+      playedChunksRef.current += audioChunks.length;
+      return durationMs;
+    },
+    [playAudioChunk, stopIOSAudio]
+  );
+
+  const playbackRemainingMs = useCallback((): number => {
+    if (isIOSRef.current) {
+      return Math.max(0, mediaEndsAtRef.current - Date.now());
+    }
+    return audioRemainingMs();
+  }, [audioRemainingMs]);
+
   const replaySegment = useCallback(
     (i: number) => {
       const segs = segmentsRef.current;
@@ -154,6 +264,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
         playNextTimeoutRef.current = null;
       }
       stopAudio();
+      stopIOSAudio();
       if (typingTimerRef.current) {
         clearInterval(typingTimerRef.current);
         typingTimerRef.current = null;
@@ -185,51 +296,87 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
         return;
       }
 
-      const durationMs = Math.round(audioDurationSeconds(seg.audioChunks) * 1000);
-      setCurrentSegmentIndex(i);
-      setCurrentNarration(seg.narration ?? "");
-      setNarrationDurationMs(durationMs);
-
       const codeSoFar = segs
         .slice(0, i)
         .map((s) => s.code)
         .join("");
       streamCodeBufferRef.current = codeSoFar;
       onDisplayedCodeChange(codeSoFar);
-      const onComplete = () => {
-        const remaining = Math.max(200, audioRemainingMs());
-        playNextTimeoutRef.current = setTimeout(() => {
-          playNextTimeoutRef.current = null;
-          if (!isPlayingRef.current) return;
-          const currentLen = segmentsRef.current.length;
-          if (i < currentLen - 1) replaySegment(i + 1);
-          else if (i === currentLen - 1 && streamEndedRef && !streamEndedRef.current) {
-            waitingForSegmentRef.current = i + 1;
-          } else setIsPlaying(false);
-        }, remaining);
+      const gen = ++playbackGenRef.current;
+      const startPlaybackAndContinue = (durationMs: number) => {
+        if (playbackGenRef.current !== gen) return;
+        setCurrentSegmentIndex(i);
+        setCurrentNarration(seg.narration ?? "");
+        setNarrationDurationMs(durationMs);
+        const onComplete = () => {
+          if (playbackGenRef.current !== gen) return;
+          const remaining = Math.max(200, playbackRemainingMs());
+          playNextTimeoutRef.current = setTimeout(() => {
+            playNextTimeoutRef.current = null;
+            if (!isPlayingRef.current) return;
+            if (playbackGenRef.current !== gen) return;
+            const currentLen = segmentsRef.current.length;
+            if (i < currentLen - 1) replaySegment(i + 1);
+            else if (i === currentLen - 1 && streamEndedRef && !streamEndedRef.current) {
+              waitingForSegmentRef.current = i + 1;
+            } else setIsPlaying(false);
+          }, remaining);
+        };
+        if (seg.code?.length > 0) {
+          const chunks = getHTMLChunks(seg.code);
+          const speedMs = typingSpeedFor80Percent(chunks.length, seg.audioChunks);
+          typeSegment(seg.code, speedMs, codeSoFar, onComplete);
+        } else {
+          const waitMs = Math.max(200, playbackRemainingMs());
+          playNextTimeoutRef.current = setTimeout(() => {
+            playNextTimeoutRef.current = null;
+            if (!isPlayingRef.current) return;
+            if (playbackGenRef.current !== gen) return;
+            const currentLen = segmentsRef.current.length;
+            if (i < currentLen - 1) replaySegment(i + 1);
+            else if (i === currentLen - 1 && streamEndedRef && !streamEndedRef.current) {
+              waitingForSegmentRef.current = i + 1;
+            } else setIsPlaying(false);
+          }, waitMs);
+        }
       };
-      if (seg.code?.length > 0) {
-        const chunks = getHTMLChunks(seg.code);
-        const speedMs = typingSpeedFor80Percent(chunks.length, seg.audioChunks);
-        typeSegment(seg.code, speedMs, codeSoFar, onComplete);
-      } else {
-        seg.audioChunks.forEach(playAudioChunk);
-        const waitMs = Math.max(200, audioRemainingMs());
-        playNextTimeoutRef.current = setTimeout(() => {
-          playNextTimeoutRef.current = null;
-          if (!isPlayingRef.current) return;
-          const currentLen = segmentsRef.current.length;
-          if (i < currentLen - 1) replaySegment(i + 1);
-          else if (i === currentLen - 1 && streamEndedRef && !streamEndedRef.current) {
-            waitingForSegmentRef.current = i + 1;
-          } else setIsPlaying(false);
-        }, waitMs);
-        return;
-      }
-      seg.audioChunks.forEach(playAudioChunk);
+      Promise.resolve(playSegmentAudio(seg.audioChunks))
+        .then((durationMs) => {
+          if (playbackGenRef.current !== gen) return;
+          startPlaybackAndContinue(durationMs);
+        })
+        .catch(() => {
+          if (playbackGenRef.current !== gen) return;
+          startPlaybackAndContinue(Math.round(audioDurationSeconds(seg.audioChunks) * 1000));
+        });
     },
-    [typeSegment, stopAudio, playAudioChunk, audioRemainingMs, streamEndedRef]
+    [typeSegment, stopAudio, stopIOSAudio, playbackRemainingMs, streamEndedRef, playSegmentAudio, onDisplayedCodeChange]
   );
+
+  useEffect(() => {
+    if (!onDebugSample) return;
+    const send = () => {
+      const dbg = getAudioDebugState?.() ?? { hasContext: false, contextState: "unknown" };
+      const totalChunks = segmentsRef.current.reduce(
+        (sum, s) => sum + (s.audioChunks?.length ?? 0),
+        0
+      );
+      const contextState = isIOSRef.current
+        ? `html-audio:${iosAudioRef.current?.paused ? "paused" : "playing"}`
+        : dbg.contextState;
+      onDebugSample({
+        contextState,
+        hasContext: isIOSRef.current ? Boolean(iosAudioRef.current) : dbg.hasContext,
+        isPlaying: isPlayingRef.current,
+        queuedMs: Math.round(playbackRemainingMs()),
+        playedChunks: playedChunksRef.current,
+        totalChunks,
+      });
+    };
+    send();
+    const id = setInterval(send, 500);
+    return () => clearInterval(id);
+  }, [onDebugSample, getAudioDebugState, playbackRemainingMs]);
 
   useImperativeHandle(
     ref,
@@ -255,12 +402,13 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     }
     waitingForSegmentRef.current = null;
     stopAudio();
+    stopIOSAudio();
     if (typingTimerRef.current) {
       clearInterval(typingTimerRef.current);
       typingTimerRef.current = null;
     }
     setIsPlaying(false);
-  }, [stopAudio]);
+  }, [stopAudio, stopIOSAudio]);
 
   const goPrevBlock = useCallback(() => {
     const prev = Math.max(0, currentSegmentIndex - 1);
@@ -274,12 +422,12 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     replaySegment(next);
   }, [currentSegmentIndex, segments.length, replaySegment]);
 
-  const togglePlayPause = useCallback(() => {
+  const togglePlayPause = useCallback(async () => {
     if (isPlaying) {
       stopCurrentPlayback();
     } else {
       stopCurrentPlayback();
-      unlockAudio();
+      await Promise.resolve(unlockAudio());
       setIsPlaying(true);
       replaySegment(currentSegmentIndex);
     }
@@ -289,10 +437,11 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   useEffect(() => {
     if (!autoplay || segments.length === 0 || autoplayTriggeredRef.current) return;
     autoplayTriggeredRef.current = true;
-    unlockAudio();
-    setCurrentSegmentIndex(0);
-    setIsPlaying(true);
-    replaySegment(0);
+    Promise.resolve(unlockAudio()).then(() => {
+      setCurrentSegmentIndex(0);
+      setIsPlaying(true);
+      replaySegment(0);
+    });
   }, [autoplay, segments.length, unlockAudio, replaySegment]);
 
   const fullCodePlain = segments.map((s) => s.codePlain ?? s.code).join("");
@@ -347,6 +496,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
 
   return (
     <>
+    <audio ref={iosAudioRef} style={{ display: "none" }} playsInline />
     <section className="mb-6">
       <style>{`@keyframes codePlayerNarrationScroll { from { transform: translateX(0); } to { transform: translateX(var(--narration-scroll-end, 0)); } }`}</style>
       <div

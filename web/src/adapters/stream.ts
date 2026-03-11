@@ -1,4 +1,4 @@
-import { getWsBase } from "@/config";
+import { getWsBaseAsync } from "@/config";
 import type { StreamPort, StreamConnection } from "@/ports/stream";
 import type { StreamEvent } from "@/domain/stream";
 import { isStreamEvent } from "@/domain/stream";
@@ -87,8 +87,8 @@ function createConnection(ws: WebSocket): StreamConnection {
 }
 
 export const websocketStreamAdapter: StreamPort = {
-  open(path: string): StreamConnection {
-    const wsBase = getWsBase();
+  async open(path: string): Promise<StreamConnection> {
+    const wsBase = await getWsBaseAsync();
     if (!wsBase) throw new Error("Cannot determine WebSocket URL");
     const ws = new WebSocket(`${wsBase}${path}`);
     return createConnection(ws);

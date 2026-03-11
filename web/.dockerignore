@@ -1,0 +1,14 @@
+# Prevent COPY . . from overwriting node_modules from the deps stage
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env*
+.dockerignore
+Dockerfile
+Dockerfile*
+coverage
+.vitest
+*.log
+npm-debug.log*

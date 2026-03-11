@@ -28,7 +28,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
   const pendingRef = useRef<{ code: string; codePlain: string; narration: string } | null>(null);
   const pendingChunksRef = useRef<string[]>([]);
 
-  const runStream = useCallback((task: string, language: string, narrationLanguage: string, userCode?: string) => {
+  const runStream = useCallback(async (task: string, language: string, narrationLanguage: string, userCode?: string) => {
     const {
         onCss,
         onCode,
@@ -59,11 +59,11 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
       pendingRef.current = null;
       pendingChunksRef.current = [];
       stopAudio();
-      unlockAudio();
+      await Promise.resolve(unlockAudio());
 
-      let conn: ReturnType<typeof websocketStreamAdapter.open> | null = null;
+      let conn: Awaited<ReturnType<typeof websocketStreamAdapter.open>> | null = null;
       try {
-        conn = websocketStreamAdapter.open("/task/stream");
+        conn = await websocketStreamAdapter.open("/task/stream");
       } catch (e) {
         onError(e instanceof Error ? e.message : "Cannot determine WebSocket URL");
         onLoading(false);
