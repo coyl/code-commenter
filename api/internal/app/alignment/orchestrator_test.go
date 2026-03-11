@@ -20,9 +20,6 @@ func (f fakeGeneration) GenerateTaskSpec(context.Context, string, string, string
 func (f fakeGeneration) GenerateCSS(context.Context, string, string) (string, error) {
 	return ".x{}", nil
 }
-func (f fakeGeneration) GenerateCode(context.Context, string, string) (string, error) {
-	return "code", nil
-}
 func (f fakeGeneration) GenerateCodeSegments(context.Context, string, string, string) ([]ports.CodeSegment, string, error) {
 	return f.segments, `[{"c":"code","n":"narration"}]`, nil
 }

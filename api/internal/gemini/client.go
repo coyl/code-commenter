@@ -129,26 +129,6 @@ Output only valid CSS, no markdown code fences. Pick a cohesive color scheme (e.
 	return strings.TrimSpace(cleanCodeBlock(extractText(result))), nil
 }
 
-// GenerateCode produces full source code in the requested language.
-func (c *Client) GenerateCode(ctx context.Context, spec, language string) (code string, err error) {
-	prompt := fmt.Sprintf(`Generate full source code that fulfills this spec. Language: %s
-
-Spec: %s
-
-Output only the code, no markdown code fences or explanation.`, language, spec)
-
-	start := time.Now()
-	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
-		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
-	if err != nil {
-		log.Error().Err(err).Str("op", "GenerateCode").Dur("dur", time.Since(start)).Msg("llm request")
-		return "", err
-	}
-	log.Info().Str("op", "GenerateCode").Dur("dur", time.Since(start)).Msg("llm request")
-	return strings.TrimSpace(cleanCodeBlock(extractText(result))), nil
-}
-
 // CodeSegment is one logical part of the code (plain text) with its narration for voiceover.
 // Syntax highlighting is applied server-side; JSON uses short keys (c=code, n=narration).
 type CodeSegment struct {

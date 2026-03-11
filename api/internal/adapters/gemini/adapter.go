@@ -24,10 +24,6 @@ func (a *Adapter) GenerateCSS(ctx context.Context, spec, language string) (strin
 	return a.Client.GenerateCSS(ctx, spec, language)
 }
 
-func (a *Adapter) GenerateCode(ctx context.Context, spec, language string) (string, error) {
-	return a.Client.GenerateCode(ctx, spec, language)
-}
-
 func (a *Adapter) GenerateCodeSegments(ctx context.Context, spec, language, narrationLang string) ([]ports.CodeSegment, string, error) {
 	segments, rawJSON, err := a.Client.GenerateCodeSegments(ctx, spec, language, narrationLang)
 	if err != nil {

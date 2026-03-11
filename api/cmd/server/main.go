@@ -73,7 +73,6 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /task", handlers.HandleTask(genAdapter, sessionRepo))
 	mux.HandleFunc("GET /task/stream", handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey))
 	if jobRepository.IsEnabled() {
 		mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobRepository))
@@ -92,20 +91,58 @@ func main() {
 func corsMiddleware(next http.Handler, origins string) http.Handler {
 	allowedOrigins := parseAllowedOrigins(origins)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestOrigin := r.Header.Get("Origin")
-		if allowOrigin := matchAllowedOrigin(requestOrigin, allowedOrigins); allowOrigin != "" {
+		rawOrigin := r.Header.Get("Origin")
+		requestOrigin := normalizeOrigin(rawOrigin)
+		allowOrigin := matchAllowedOrigin(requestOrigin, rawOrigin, allowedOrigins)
+		if allowOrigin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 		}
-		// Always set Vary so caches do not serve a response (e.g. one without ACAO) for a different Origin.
-		w.Header().Set("Vary", "Origin")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		appendVary(w.Header(), "Origin")
 		if r.Method == http.MethodOptions {
+			appendVary(w.Header(), "Access-Control-Request-Method")
+			appendVary(w.Header(), "Access-Control-Request-Headers")
+			reqMethod := strings.TrimSpace(r.Header.Get("Access-Control-Request-Method"))
+			if reqMethod == "" {
+				reqMethod = "GET, POST, OPTIONS"
+			}
+			reqHeaders := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers"))
+			if reqHeaders == "" {
+				reqHeaders = "Content-Type, Accept, Accept-Language, Authorization"
+			}
+			w.Header().Set("Access-Control-Allow-Methods", reqMethod)
+			// Echo requested headers for maximum browser compatibility.
+			w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+			w.Header().Set("Access-Control-Max-Age", "86400")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func appendVary(h http.Header, value string) {
+	existing := h.Values("Vary")
+	if len(existing) == 0 {
+		h.Set("Vary", value)
+		return
+	}
+	for _, line := range existing {
+		for _, token := range strings.Split(line, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), value) {
+				return
+			}
+		}
+	}
+	h.Add("Vary", value)
+}
+
+// normalizeOrigin trims and strips trailing slash for consistent comparison.
+func normalizeOrigin(origin string) string {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return ""
+	}
+	return strings.TrimSuffix(origin, "/")
 }
 
 func parseAllowedOrigins(origins string) []string {
@@ -115,7 +152,7 @@ func parseAllowedOrigins(origins string) []string {
 	parts := strings.Split(origins, ",")
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
-		origin := strings.TrimSpace(part)
+		origin := normalizeOrigin(part)
 		if origin == "" {
 			continue
 		}
@@ -124,16 +161,18 @@ func parseAllowedOrigins(origins string) []string {
 	return out
 }
 
-func matchAllowedOrigin(requestOrigin string, allowedOrigins []string) string {
-	if len(allowedOrigins) == 0 || requestOrigin == "" {
+// matchAllowedOrigin returns the origin to send in Access-Control-Allow-Origin.
+// It must be the exact request origin (rawOrigin) for the browser to accept it; comparison uses normalized forms.
+func matchAllowedOrigin(normalizedRequest, rawOrigin string, allowedOrigins []string) string {
+	if len(allowedOrigins) == 0 || normalizedRequest == "" {
 		return ""
 	}
 	for _, origin := range allowedOrigins {
 		if origin == "*" {
 			return "*"
 		}
-		if requestOrigin == origin {
-			return requestOrigin
+		if normalizedRequest == origin {
+			return rawOrigin
 		}
 	}
 	return ""

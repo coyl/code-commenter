@@ -6,7 +6,6 @@ import GenerationProgress from "@/components/GenerationProgress";
 import { usePCMPlayer } from "@/lib/audio";
 import type { Segment } from "@/domain/stream";
 import { useStreamTask } from "@/features/stream/useStreamTask";
-import { useTask } from "@/features/task/useTask";
 
 type InputTab = "task" | "code";
 
@@ -42,7 +41,7 @@ export default function Home() {
   const streamEndedRef = useRef(false);
   const newSegmentIndexRef = useRef<number | null>(null);
   const codePlayerRef = useRef<CodePlayerRef | null>(null);
-  const { stop: stopAudio, unlock: unlockAudio } = usePCMPlayer();
+  const { playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs } = usePCMPlayer();
 
   const streamCallbacks = useMemo(
     () => ({
@@ -67,12 +66,27 @@ export default function Home() {
     [stopAudio, unlockAudio]
   );
   const { runStream } = useStreamTask(streamCallbacks);
-  const { runTask, error: taskError, clearError: clearTaskError } = useTask();
 
-  const clearAllErrors = () => {
-    setError(null);
-    clearTaskError();
-  };
+  const clearAllErrors = () => setError(null);
+
+  useEffect(() => {
+    let unlocked = false;
+    const primeAudio = () => {
+      if (unlocked) return;
+      unlocked = true;
+      Promise.resolve(unlockAudio()).catch(() => {
+        unlocked = false;
+      });
+    };
+    window.addEventListener("pointerdown", primeAudio, { passive: true });
+    window.addEventListener("touchstart", primeAudio, { passive: true });
+    window.addEventListener("keydown", primeAudio);
+    return () => {
+      window.removeEventListener("pointerdown", primeAudio);
+      window.removeEventListener("touchstart", primeAudio);
+      window.removeEventListener("keydown", primeAudio);
+    };
+  }, [unlockAudio]);
 
   useEffect(() => {
     if (!css) return;
@@ -105,26 +119,7 @@ export default function Home() {
     }
   };
 
-  const submitTask = async () => {
-    if (inputTab === "code") return; // "Generate (no voice)" only for task
-    if (!task.trim()) return;
-    clearAllErrors();
-    setLoading(true);
-    try {
-      const data = await runTask(task.trim(), language || "javascript", narrationLanguage);
-      setSessionId(data.id);
-      setCss(data.css);
-      setCode(data.code);
-      setDisplayedCode(data.code);
-      setNarration(data.narration ?? "");
-    } catch {
-      // error already set by useTask
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const displayError = error ?? taskError ?? null;
+  const displayError = error;
 
   return (
     <main className="min-h-screen p-6 max-w-5xl mx-auto">
@@ -220,17 +215,8 @@ export default function Home() {
             disabled={loading}
             className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-medium text-sm"
           >
-            {loading ? "Generating…" : "Generate (stream + voice)"}
+            {loading ? "Generating…" : "Generate"}
           </button>
-          {inputTab === "task" && (
-            <button
-              onClick={submitTask}
-              disabled={loading}
-              className="px-4 py-2 rounded-lg bg-zinc-600 hover:bg-zinc-500 disabled:opacity-50 text-white font-medium text-sm"
-            >
-              Generate (no voice)
-            </button>
-          )}
         </div>
       </section>
 
@@ -252,6 +238,7 @@ export default function Home() {
             sessionId={sessionId}
             loading={loading}
             streamEndedRef={streamEndedRef}
+            audio={{ playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs }}
           />
           {(code || segments.length > 0) && (
             <div className="mt-4 border border-zinc-700 rounded-lg overflow-hidden bg-zinc-900/50">

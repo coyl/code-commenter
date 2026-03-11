@@ -4,14 +4,11 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --legacy-peer-deps
 
-# Build
+# Build (no API URL at build time; configured at container start via config.json)
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# NEXT_PUBLIC_* is inlined at build time; pass via build arg so compose/env can override
-ARG NEXT_PUBLIC_API_URL=http://localhost:8080
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
 
 # Run
@@ -24,8 +21,10 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chown -R nextjs:nodejs /app/public && chmod 775 /app/public && chown nextjs:nodejs /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoint.sh
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
-CMD ["node", "server.js"]
+CMD ["/app/docker-entrypoint.sh"]

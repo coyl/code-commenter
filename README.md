@@ -1,6 +1,6 @@
 # Code Commenter Live Agent
 
-A hackathon-compliant web app: describe a coding task (text or live voice), get dynamically generated CSS and code with a typing effect and Gemini Live API voiceover.
+Describe a coding task (text or live voice) and get code with just-in-time streaming and Gemini Live API voiceover. The UI shows live progress stages (e.g. “Generating task spec”, “Generating CSS”, “Generating voiceover”) while the backend streams spec, CSS, code segments, and audio.
 
 ## Requirements
 
@@ -30,11 +30,13 @@ export ALLOWED_ORIGINS=http://localhost:3000
 # export TIMESTAMP_MODEL=gemini-2.5-flash
 ```
 
-For the frontend, create `web/.env.local`:
+For the frontend, create `web/.env.local` (optional):
 
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
+
+The frontend also reads the API URL at **runtime** from `web/public/config.json`. That file is fetched in the browser on first use; if missing or invalid, the app falls back to `NEXT_PUBLIC_API_URL` or `http://localhost:8080`. For local dev, the repo includes a `config.json` pointing at localhost. For production, you can overwrite `config.json` at container start so one build works for any backend URL.
 
 ### 2. Run locally
 
@@ -72,7 +74,39 @@ docker-compose up --build
 
 Set `GEMINI_API_KEY` in the environment or in `docker-compose.yaml` (or use a `.env` file and `env_file` in the compose file).
 
-### 4. Deploy backend to Google Cloud Run
+### 4. Deploy both to Cloud Run (script)
+
+From the repo root, create a `.env.prod` file (not committed; see `.gitignore`) with at least `GEMINI_API_KEY` and optionally S3 and other API env vars:
+
+```bash
+# .env.prod (required)
+GEMINI_API_KEY=your-gemini-api-key
+
+# Optional: S3 for job storage
+S3_BUCKET=your-bucket
+S3_REGION=eu-central-1
+# S3_ACCESS_KEY=...
+# S3_SECRET_KEY=...
+# S3_ENDPOINT=...   # e.g. for MinIO
+```
+
+Then run:
+
+```bash
+./scripts/deploy-cloudrun.sh
+```
+
+The script loads `.env.prod`, deploys the API (with those env vars), then the frontend (with the API URL inlined), then sets the API’s `ALLOWED_ORIGINS` to the frontend URL. Optional: pass a GCP project ID to switch to that project before deploying:
+
+```bash
+./scripts/deploy-cloudrun.sh my-gcp-project-id
+```
+
+Requires `gcloud` CLI and an existing GCP project (builds run in Cloud Build; local Docker not required). The script uses region `europe-west1` (Frankfurt) unless you set `REGION` in the environment.
+
+To deploy only the frontend (e.g. after changing the web app or switching API URL), use `./scripts/deploy-cloudrun-web.sh [GCP_PROJECT_ID]`. It needs the API base URL: set `API_URL` in `.env.prod` or in the environment, or have the API already deployed in the same project/region so the script can discover it.
+
+### 5. Deploy backend to Google Cloud Run (manual)
 
 ```bash
 cd api
@@ -85,10 +119,51 @@ gcloud run deploy code-commenter-api \
 
 Then set `NEXT_PUBLIC_API_URL` to your Cloud Run URL when building/serving the frontend.
 
+### 6. Deploy frontend to Google Cloud Run (manual)
+
+The frontend reads the API URL at **runtime** from `/config.json` (see Environment above). You can deploy one image and set the backend URL when the container starts.
+
+**Option A — Runtime config (recommended):** Build the image once (no API URL at build time). At container start, write `public/config.json` with your backend URL, then start the app. Example entrypoint:
+
+```bash
+# Before starting the Node server, write config from env
+echo "{\"apiUrl\":\"${API_URL:-http://localhost:8080}\"}" > /app/public/config.json
+exec node server.js
+```
+
+Set Cloud Run env var `API_URL` to your backend URL (e.g. `https://code-commenter-api-xxxxx.run.app`). The Dockerfile can be updated to copy a small entrypoint script that does the above, or you use a custom image that writes config then runs `node server.js`.
+
+**Option B — Build-time URL:** Build with the API URL inlined (same as before):
+
+```bash
+cd web
+export NEXT_PUBLIC_API_URL=https://code-commenter-api-xxxxx.run.app
+docker build --build-arg NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL}" -t code-commenter-web .
+# Tag, push to Artifact Registry, then deploy (see below)
+```
+
+**Deploy the image:**
+
+```bash
+# Tag for Artifact Registry (replace PROJECT_ID)
+docker tag code-commenter-web us-central1-docker.pkg.dev/PROJECT_ID/code-commenter/code-commenter-web:latest
+gcloud auth configure-docker us-central1-docker.pkg.dev
+docker push us-central1-docker.pkg.dev/PROJECT_ID/code-commenter/code-commenter-web:latest
+
+gcloud run deploy code-commenter-web \
+  --image us-central1-docker.pkg.dev/PROJECT_ID/code-commenter/code-commenter-web:latest \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --port 3000
+```
+
+- **Artifact Registry:** Create a repository if needed: `gcloud artifacts repositories create code-commenter --repository-format=docker --location=us-central1`.
+- **CORS:** Set the API’s `ALLOWED_ORIGINS` to include your frontend’s Cloud Run URL.
+
 ## Repo layout
 
-- **`api/`** — Go backend: POST `/task`, WebSocket `GET /live` (Live API proxy).
-- **`web/`** — Next.js frontend: task input, code view with typing effect, dynamic CSS.
+- **`api/`** — Go backend: WebSocket GET `/task/stream` (streaming spec/CSS/code/audio + stage events), WebSocket `GET /live` (Live API proxy).
+- **`web/`** — Next.js frontend: task input, generation progress (stage labels + %), code view with typing effect, dynamic CSS.
 - **`doc/architecture.md`** — Architecture and data flow.
 
 ## Architecture diagram
@@ -99,7 +174,7 @@ See [doc/architecture.md](doc/architecture.md) for the Mermaid diagram (Browser 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST   | `/task` | Submit task (text), get `id`, `css`, `code`, `spec`, `narration`. |
+| GET    | `/task/stream` | WebSocket: stream task with `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`. |
 | GET    | `/live` | WebSocket: proxy to Gemini Live API for voice in/out. |
 
 ## Embeddable job player
@@ -147,11 +222,4 @@ ALLOWED_ORIGINS=https://your-web-domain.com,http://localhost:3000
 
 If a job cannot be loaded, the embed route shows an in-frame error message.
 
-## Hackathon checklist
-
-- [x] Use a Gemini model (Gemini 3.1 for generation).
-- [x] Use at least one Google Cloud service (deploy backend on Cloud Run).
-- [x] Gemini Live API used for real-time voice (WebSocket proxy).
-- [ ] Public repo, README with spin-up instructions (this file).
-- [ ] Architecture diagram (see `doc/architecture.md`).
-- [ ] &lt;4 min demo video for submission.
+For how to run and verify the app locally and in CI, see [doc/testing.md](doc/testing.md).

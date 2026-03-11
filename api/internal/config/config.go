@@ -63,7 +63,7 @@ func Load() *Config {
 		s3Region = os.Getenv("S3_REGION")
 	}
 	if s3Region == "" && s3Bucket != "" {
-		s3Region = "us-east-1"
+		s3Region = ""
 	}
 	s3Endpoint := os.Getenv("S3_ENDPOINT")
 	s3AccessKey := os.Getenv("S3_ACCESS_KEY")

@@ -30,7 +30,6 @@ type JobSegment struct {
 type GenerationPort interface {
 	GenerateTaskSpec(ctx context.Context, task, language, narrationLang string) (spec, narration string, err error)
 	GenerateCSS(ctx context.Context, spec, language string) (string, error)
-	GenerateCode(ctx context.Context, spec, language string) (string, error)
 	GenerateCodeSegments(ctx context.Context, spec, language, narrationLang string) ([]CodeSegment, string, error)
 	// FormatAndSegmentCode takes user-provided code, beautifies only indentation/newlines, and returns segments with narration. Language is inferred by the LLM.
 	FormatAndSegmentCode(ctx context.Context, code, narrationLang string) ([]CodeSegment, string, error)
