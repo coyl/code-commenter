@@ -4,6 +4,7 @@
  */
 export type StreamEvent =
   | { type: "job_started"; id: string }
+  | { type: "stage"; stage: string }
   | { type: "spec"; spec?: string; narration?: string }
   | { type: "css"; css?: string }
   | { type: "segment"; index: number; code: string; codePlain: string; narration: string }
@@ -28,6 +29,7 @@ export function isStreamEvent(msg: unknown): msg is StreamEvent {
   const t = (msg as { type: string }).type;
   return [
     "job_started",
+    "stage",
     "spec",
     "css",
     "segment",

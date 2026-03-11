@@ -15,6 +15,8 @@ func (s Sink) Emit(event ports.StreamEvent) error {
 	switch event.Type {
 	case "job_started":
 		return s.Conn.WriteJSON(map[string]string{"type": "job_started", "id": event.ID})
+	case "stage":
+		return s.Conn.WriteJSON(map[string]interface{}{"type": "stage", "stage": event.Stage})
 	case "spec":
 		return s.Conn.WriteJSON(map[string]interface{}{
 			"type":      "spec",

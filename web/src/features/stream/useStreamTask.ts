@@ -13,6 +13,7 @@ export type StreamTaskCallbacks = {
   onRawJson: (raw: string) => void;
   onError: (err: string | null) => void;
   onLoading: (loading: boolean) => void;
+  onStage: (stage: string) => void;
   onStreamEnded: (ended: boolean) => void;
   onNewSegmentIndex: (index: number | null) => void;
   stopAudio: () => void;
@@ -37,6 +38,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
         onRawJson,
         onError,
         onLoading,
+        onStage,
         onStreamEnded,
         onNewSegmentIndex,
         stopAudio,
@@ -45,6 +47,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
 
       onError(null);
       onLoading(true);
+      onStage("");
       onCss("");
       onCode("");
       onNarration("");
@@ -88,6 +91,9 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
 
       conn.onMessage((event) => {
         switch (event.type) {
+          case "stage":
+            onStage("stage" in event && typeof event.stage === "string" ? event.stage : "");
+            break;
           case "spec":
             onNarration(event.narration ?? "");
             break;

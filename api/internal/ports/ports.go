@@ -74,6 +74,7 @@ type StreamEvent struct {
 	TimestampMs  int64
 
 	ID        string
+	Stage     string // human-readable stage title for progress UI (e.g. "Generating CSS…")
 	Spec      string
 	CSS       string
 	Code      string

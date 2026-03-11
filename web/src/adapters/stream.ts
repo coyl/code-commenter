@@ -27,6 +27,8 @@ export function parseMessage(data: string): StreamEvent | null {
         };
       case "job_started":
         return { type: "job_started", id: msg.id ?? "" };
+      case "stage":
+        return { type: "stage", stage: typeof msg.stage === "string" ? msg.stage : "" };
       case "spec":
         return { type: "spec", spec: msg.spec, narration: msg.narration };
       case "css":
