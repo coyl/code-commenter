@@ -88,6 +88,8 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
   const isPlayingRef = useRef(false);
   const segmentsRef = useRef<Segment[]>([]);
   const waitingForSegmentRef = useRef<number | null>(null);
+  /** Incremented on each replaySegment start; used to ignore stale playSegmentAudio promise callbacks (e.g. on iOS when user taps another segment before el.play() resolves). */
+  const playbackGenRef = useRef(0);
   const narrationContainerRef = useRef<HTMLDivElement>(null);
   const narrationInnerRef = useRef<HTMLDivElement>(null);
   const [narrationScrollPx, setNarrationScrollPx] = useState(0);
@@ -300,15 +302,19 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
         .join("");
       streamCodeBufferRef.current = codeSoFar;
       onDisplayedCodeChange(codeSoFar);
+      const gen = ++playbackGenRef.current;
       const startPlaybackAndContinue = (durationMs: number) => {
+        if (playbackGenRef.current !== gen) return;
         setCurrentSegmentIndex(i);
         setCurrentNarration(seg.narration ?? "");
         setNarrationDurationMs(durationMs);
         const onComplete = () => {
+          if (playbackGenRef.current !== gen) return;
           const remaining = Math.max(200, playbackRemainingMs());
           playNextTimeoutRef.current = setTimeout(() => {
             playNextTimeoutRef.current = null;
             if (!isPlayingRef.current) return;
+            if (playbackGenRef.current !== gen) return;
             const currentLen = segmentsRef.current.length;
             if (i < currentLen - 1) replaySegment(i + 1);
             else if (i === currentLen - 1 && streamEndedRef && !streamEndedRef.current) {
@@ -325,6 +331,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
           playNextTimeoutRef.current = setTimeout(() => {
             playNextTimeoutRef.current = null;
             if (!isPlayingRef.current) return;
+            if (playbackGenRef.current !== gen) return;
             const currentLen = segmentsRef.current.length;
             if (i < currentLen - 1) replaySegment(i + 1);
             else if (i === currentLen - 1 && streamEndedRef && !streamEndedRef.current) {
@@ -335,9 +342,11 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
       };
       Promise.resolve(playSegmentAudio(seg.audioChunks))
         .then((durationMs) => {
+          if (playbackGenRef.current !== gen) return;
           startPlaybackAndContinue(durationMs);
         })
         .catch(() => {
+          if (playbackGenRef.current !== gen) return;
           startPlaybackAndContinue(Math.round(audioDurationSeconds(seg.audioChunks) * 1000));
         });
     },
