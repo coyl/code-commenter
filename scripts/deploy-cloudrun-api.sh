@@ -2,8 +2,8 @@
 # Deploy only the API (backend) to Google Cloud Run.
 # Usage: ./scripts/deploy-cloudrun-api.sh [GCP_PROJECT_ID]
 #   If GCP_PROJECT_ID is given, switches gcloud to that project before deploying.
-# Loads GEMINI_API_KEY, S3_*, and optional auth/Firestore (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
-# SESSION_SECRET, FIRESTORE_PROJECT_ID) from .env.prod in the repo root if present.
+# Loads GEMINI_API_KEY, S3_*, and optional auth/job-index (GOOGLE_CLIENT_*, SESSION_SECRET,
+# FIRESTORE_PROJECT_ID, FIRESTORE_DATABASE_ID or DATASTORE_PROJECT_ID) from .env.prod in the repo root if present.
 # AUTH_CALLBACK_URL is set automatically to the deployed API URL + /auth/callback when OAuth is configured.
 
 set -e
@@ -79,8 +79,11 @@ trap 'rm -f "$API_ENV_FILE"' EXIT
   [[ -n "${GOOGLE_CLIENT_SECRET:-}" ]] && printf '%s: "%s"\n' "GOOGLE_CLIENT_SECRET" "$(escape_yaml_val "${GOOGLE_CLIENT_SECRET}")"
   [[ -n "${GOOGLE_CLIENT_ID:-}" ]]    && printf '%s: "%s"\n' "AUTH_CALLBACK_URL"   "$(escape_yaml_val "${API_BASE_URL}/auth/callback")"
   [[ -n "${SESSION_SECRET:-}" ]]      && printf '%s: "%s"\n' "SESSION_SECRET"      "$(escape_yaml_val "${SESSION_SECRET}")"
-  # Firestore job index (optional: enables "My jobs" when auth is enabled)
-  [[ -n "${FIRESTORE_PROJECT_ID:-}" ]] && printf '%s: "%s"\n' "FIRESTORE_PROJECT_ID" "$(escape_yaml_val "${FIRESTORE_PROJECT_ID}")"
+  # Job index: Firestore (Native) or Datastore / Firestore in Datastore mode (optional: enables "My jobs" when auth is enabled)
+  [[ -n "${FIRESTORE_PROJECT_ID:-}" ]]   && printf '%s: "%s"\n' "FIRESTORE_PROJECT_ID"   "$(escape_yaml_val "${FIRESTORE_PROJECT_ID}")"
+  [[ -n "${FIRESTORE_DATABASE_ID:-}" ]]  && printf '%s: "%s"\n' "FIRESTORE_DATABASE_ID"  "$(escape_yaml_val "${FIRESTORE_DATABASE_ID}")"
+  [[ -n "${DATASTORE_PROJECT_ID:-}" ]]   && printf '%s: "%s"\n' "DATASTORE_PROJECT_ID"   "$(escape_yaml_val "${DATASTORE_PROJECT_ID}")"
+  [[ -n "${DATASTORE_DATABASE_ID:-}" ]]  && printf '%s: "%s"\n' "DATASTORE_DATABASE_ID"  "$(escape_yaml_val "${DATASTORE_DATABASE_ID}")"
 } >> "$API_ENV_FILE"
 
 echo "Project: $PROJECT_ID  Region: $REGION"

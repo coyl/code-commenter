@@ -25,7 +25,7 @@ func TestRequireAuth_WithUser(t *testing.T) {
 	secret := "test-secret-at-least-32-bytes-long"
 	u := &ports.UserInfo{Sub: "sub1", Email: "a@b.com"}
 	wSet := httptest.NewRecorder()
-	SetSession(wSet, secret, u)
+	SetSession(wSet, nil, secret, u)
 	cookie := wSet.Result().Cookies()[0]
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -41,10 +41,10 @@ if [[ -z "$PROJECT_NUMBER" ]]; then
   exit 1
 fi
 
-# Resolve API URL: use env/.env.prod or discover from deployed API service
+# Resolve API URL: use env/.env.prod or canonical URL (must match AUTH_CALLBACK_URL for cookies)
 if [[ -z "${API_URL:-}" ]]; then
-  echo "API_URL not set; discovering from deployed API service..."
-  API_URL="$(gcloud run services describe "$API_SERVICE" --region "$REGION" --format='value(status.url)' 2>/dev/null | sed 's|/$||')"
+  echo "API_URL not set; using canonical API URL..."
+  API_URL="https://${API_SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
 fi
 if [[ -z "$API_URL" ]]; then
   echo "Error: API_URL is not set. Set it in .env.prod (e.g. API_URL=https://code-commenter-api-xxxxx.run.app) or deploy the API first." >&2

@@ -34,7 +34,9 @@ if [[ -z "$PROJECT_NUMBER" ]]; then
   exit 1
 fi
 
-API_URL="$(gcloud run services describe "$API_SERVICE" --region "$REGION" --format='value(status.url)' | sed 's|/$||')"
+# Use canonical API URL so it matches AUTH_CALLBACK_URL and the session cookie domain.
+# (gcloud status.url can return a different hash-style host; cookies then wouldn't be sent.)
+API_URL="https://${API_SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
 echo "API URL: $API_URL"
 
 echo "--- Deploying frontend ---"

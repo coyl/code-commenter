@@ -20,6 +20,7 @@ import (
 	"code-commenter/api/internal/gemini"
 	"code-commenter/api/internal/handlers"
 	"code-commenter/api/internal/jobstore"
+	dsindex "code-commenter/api/internal/jobstore/datastore"
 	"code-commenter/api/internal/jobstore/firestore"
 	"code-commenter/api/internal/ports"
 	"code-commenter/api/internal/store"
@@ -64,8 +65,19 @@ func main() {
 		jobRepository = &jobstoreadapter.Adapter{Store: jobStore}
 	}
 	var jobIndex ports.JobIndex
-	if cfg.FirestoreProjectID != "" {
-		fsIndex, err := firestore.NewIndex(ctx, cfg.FirestoreProjectID)
+	switch cfg.JobIndexBackend() {
+	case "datastore":
+		dsIdx, err := dsindex.NewIndex(ctx, cfg.DatastoreProjectID, cfg.DatastoreDatabaseID)
+		if err != nil {
+			log.Fatal().Err(err).Msg("datastore job index")
+		}
+		if dsIdx != nil {
+			defer func() { _ = dsIdx.Close() }()
+			jobIndex = dsIdx
+			jobRepository = &jobstoreadapter.CompositeRepository{Repo: jobRepository, Index: jobIndex}
+		}
+	case "firestore":
+		fsIndex, err := firestore.NewIndex(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
 		if err != nil {
 			log.Fatal().Err(err).Msg("firestore job index")
 		}

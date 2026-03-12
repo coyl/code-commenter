@@ -22,8 +22,21 @@ type sessionPayload struct {
 	Expires int64  `json:"exp"`
 }
 
+// isSecureRequest returns true when the request is over HTTPS (direct or behind a proxy).
+func isSecureRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return r.Header.Get("X-Forwarded-Proto") == "https"
+}
+
 // SetSession writes a signed session cookie with the user.
-func SetSession(w http.ResponseWriter, secret string, u *ports.UserInfo) {
+// SameSite=None is required so the cookie is sent on cross-site requests (e.g. web app → API).
+// Secure is set from the request (HTTPS or X-Forwarded-Proto).
+func SetSession(w http.ResponseWriter, r *http.Request, secret string, u *ports.UserInfo) {
 	if secret == "" || u == nil {
 		return
 	}
@@ -41,20 +54,21 @@ func SetSession(w http.ResponseWriter, secret string, u *ports.UserInfo) {
 		Value:    value,
 		Path:     "/",
 		MaxAge:   sessionMaxAge,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   false, // set true behind TLS in production
+		SameSite: http.SameSiteNoneMode, // required for cross-site send (web → API)
+		Secure:   isSecureRequest(r),
 		HttpOnly: true,
 	})
 }
 
-// ClearSession removes the session cookie.
-func ClearSession(w http.ResponseWriter) {
+// ClearSession removes the session cookie. Secure/SameSite must match SetSession so the browser clears it.
+func ClearSession(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteNoneMode,
+		Secure:   isSecureRequest(r),
 		HttpOnly: true,
 	})
 }

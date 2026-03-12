@@ -27,8 +27,14 @@ type Config struct {
 	AuthCallbackURL    string // e.g. https://api.example.com/auth/callback
 	SessionSecret      string // HMAC key for session cookie (32+ bytes recommended)
 
-	// Firestore for job index (owner + listing). Empty = disabled.
-	FirestoreProjectID string
+	// Firestore (Native) for job index (owner + listing). Empty = disabled.
+	FirestoreProjectID  string
+	FirestoreDatabaseID string // Database name; empty = "(default)"
+
+	// Datastore (or Firestore in Datastore mode) for job index. When set, used instead of Firestore.
+	// Use this when the database is in Datastore mode (Cloud Firestore API not available).
+	DatastoreProjectID  string
+	DatastoreDatabaseID string // Named database (e.g. code-commenter); empty = "(default)"
 }
 
 // Load reads config from environment.
@@ -82,6 +88,9 @@ func Load() *Config {
 	authCallbackURL := os.Getenv("AUTH_CALLBACK_URL")
 	sessionSecret := os.Getenv("SESSION_SECRET")
 	firestoreProjectID := os.Getenv("FIRESTORE_PROJECT_ID")
+	firestoreDatabaseID := strings.TrimSpace(os.Getenv("FIRESTORE_DATABASE_ID"))
+	datastoreProjectID := os.Getenv("DATASTORE_PROJECT_ID")
+	datastoreDatabaseID := strings.TrimSpace(os.Getenv("DATASTORE_DATABASE_ID"))
 	return &Config{
 		Port:           port,
 		GeminiAPIKey:   apiKey,
@@ -100,8 +109,31 @@ func Load() *Config {
 		GoogleClientSecret: googleClientSecret,
 		AuthCallbackURL:    authCallbackURL,
 		SessionSecret:      sessionSecret,
-		FirestoreProjectID: firestoreProjectID,
+		FirestoreProjectID:  firestoreProjectID,
+		FirestoreDatabaseID: firestoreDatabaseID,
+		DatastoreProjectID:   datastoreProjectID,
+		DatastoreDatabaseID: datastoreDatabaseID,
 	}
+}
+
+// JobIndexProjectID returns the project ID to use for the job index.
+// When DatastoreProjectID is set, use it (Datastore backend); otherwise use FirestoreProjectID.
+func (c *Config) JobIndexProjectID() string {
+	if c.DatastoreProjectID != "" {
+		return c.DatastoreProjectID
+	}
+	return c.FirestoreProjectID
+}
+
+// JobIndexBackend returns "datastore", "firestore", or "" if no job index is configured.
+func (c *Config) JobIndexBackend() string {
+	if c.DatastoreProjectID != "" {
+		return "datastore"
+	}
+	if c.FirestoreProjectID != "" {
+		return "firestore"
+	}
+	return ""
 }
 
 // AuthEnabled returns true when Google OAuth and session are configured.

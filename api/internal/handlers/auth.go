@@ -50,7 +50,7 @@ func HandleAuthCallback(cfg *auth.OAuthConfig, sessionSecret string, allowedOrig
 			http.Error(w, "login failed", http.StatusUnauthorized)
 			return
 		}
-		auth.SetSession(w, sessionSecret, user)
+		auth.SetSession(w, r, sessionSecret, user)
 		log.Info().Str("sub", user.Sub).Str("email", user.Email).Msg("user signed in")
 		auth.RedirectTo(w, r, redirect, allowedOrigins)
 	}
@@ -59,7 +59,7 @@ func HandleAuthCallback(cfg *auth.OAuthConfig, sessionSecret string, allowedOrig
 // HandleLogout clears the session cookie and redirects.
 func HandleLogout(sessionSecret string, allowedOrigins []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth.ClearSession(w)
+		auth.ClearSession(w, r)
 		redirect := r.URL.Query().Get("redirect")
 		redirect = auth.RedirectSafe(redirect, allowedOrigins, auth.DefaultRedirect(allowedOrigins))
 		auth.RedirectTo(w, r, redirect, allowedOrigins)

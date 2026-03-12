@@ -27,11 +27,18 @@ type Index struct {
 }
 
 // NewIndex creates a Firestore job index. projectID must be non-empty.
-func NewIndex(ctx context.Context, projectID string) (*Index, error) {
+// databaseID is the Firestore database name; empty means the default database "(default)".
+func NewIndex(ctx context.Context, projectID, databaseID string) (*Index, error) {
 	if projectID == "" {
 		return nil, nil
 	}
-	client, err := firestore.NewClient(ctx, projectID)
+	var client *firestore.Client
+	var err error
+	if databaseID == "" {
+		client, err = firestore.NewClient(ctx, projectID)
+	} else {
+		client, err = firestore.NewClientWithDatabase(ctx, projectID, databaseID)
+	}
 	if err != nil {
 		return nil, err
 	}

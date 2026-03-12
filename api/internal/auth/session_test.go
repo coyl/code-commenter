@@ -13,7 +13,7 @@ func TestSetSessionAndFromRequest(t *testing.T) {
 	u := &ports.UserInfo{Sub: "user123", Email: "u@example.com"}
 
 	w := httptest.NewRecorder()
-	SetSession(w, secret, u)
+	SetSession(w, nil, secret, u)
 	cookies := w.Result().Cookies()
 	if len(cookies) != 1 {
 		t.Fatalf("expected 1 cookie, got %d", len(cookies))
@@ -58,7 +58,7 @@ func TestFromRequest_InvalidSignature(t *testing.T) {
 
 func TestClearSession(t *testing.T) {
 	w := httptest.NewRecorder()
-	ClearSession(w)
+	ClearSession(w, nil)
 	cookies := w.Result().Cookies()
 	if len(cookies) != 1 {
 		t.Fatalf("expected 1 cookie, got %d", len(cookies))

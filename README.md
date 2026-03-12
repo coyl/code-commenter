@@ -35,8 +35,13 @@ export ALLOWED_ORIGINS=http://localhost:3000
 # export AUTH_CALLBACK_URL=https://your-api-domain.com/auth/callback
 # export SESSION_SECRET=at-least-32-byte-random-string-for-cookie-signing
 
-# Optional: Firestore for job index (enables "My jobs" list when auth is enabled)
+# Optional: Job index for "My jobs" (use one when auth is enabled)
+# Firestore (Native mode):
 # export FIRESTORE_PROJECT_ID=your-gcp-project-id
+# export FIRESTORE_DATABASE_ID=your-database-id   # optional; omit for (default)
+# Datastore / Firestore in Datastore mode (use when Firestore API is not available):
+# export DATASTORE_PROJECT_ID=your-gcp-project-id
+# export DATASTORE_DATABASE_ID=code-commenter   # named database; omit for (default)
 ```
 
 For the frontend, create `web/.env.local` (optional):
@@ -199,7 +204,10 @@ When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_CALLBACK_URL`, and `SESSI
 - Unauthenticated requests to `GET /task/stream` receive 401.
 - The frontend shows "Sign in with Google"; after sign-in, the session cookie is sent with requests (use `credentials: 'include'` and ensure `ALLOWED_ORIGINS` matches the web origin so CORS allows credentials).
 
-With `FIRESTORE_PROJECT_ID` set, job metadata (owner, title, createdAt) is written to Firestore on each upload. The "My jobs" sidebar calls `GET /jobs/mine` to list the current user's jobs. Create a Firestore composite index: collection `jobs`, fields `ownerSub` (Ascending) and `createdAt` (Descending). The Firebase console will prompt with a link when the first query runs.
+With a job index configured, job metadata (owner, title, createdAt) is written on each upload. The "My jobs" sidebar calls `GET /jobs/mine` to list the current user's jobs.
+
+- **Firestore (Native):** set `FIRESTORE_PROJECT_ID` (and optionally `FIRESTORE_DATABASE_ID`). Create a composite index: collection `jobs`, fields `ownerSub` (Ascending) and `createdAt` (Descending). The Firebase console will prompt with a link when the first query runs.
+- **Datastore / Firestore in Datastore mode:** set `DATASTORE_PROJECT_ID` when your database is in Datastore mode (the Cloud Firestore API is not available for that database). Set `DATASTORE_DATABASE_ID` to your named database (e.g. `code-commenter`); omit for the default database. Create a composite index: kind `Job`, properties `ownerSub` (Ascending) and `createdAt` (Descending). Use `gcloud datastore indexes create api/index.yaml --project=YOUR_PROJECT_ID` (add `--database=YOUR_DATABASE_ID` for a named database) or the link from the first-query error in the console.
 
 ## Embeddable job player
 
