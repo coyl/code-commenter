@@ -74,17 +74,19 @@ type SegmentStored struct {
 
 // ResultStored is the JSON we store as result.json (full code + segments + metadata).
 type ResultStored struct {
-	RawJSON          string          `json:"rawJson"`
-	FullCode         string          `json:"fullCode"`
-	FullCodePlain    string          `json:"fullCodePlain"`
-	CSS              string          `json:"css"`
-	Title            string          `json:"title"`
-	NarrationLang    string          `json:"narrationLang"`
-	Segments         []SegmentStored `json:"segments"`
+	RawJSON       string          `json:"rawJson"`
+	FullCode      string          `json:"fullCode"`
+	FullCodePlain string          `json:"fullCodePlain"`
+	CSS           string          `json:"css"`
+	Title         string          `json:"title"`
+	NarrationLang string          `json:"narrationLang"`
+	Segments      []SegmentStored `json:"segments"`
+	OwnerSub      string          `json:"ownerSub,omitempty"`
+	OwnerEmail    string          `json:"ownerEmail,omitempty"`
 }
 
-// UploadJob writes prompt, result JSON (with css, title, narrationLang), and per-segment PCM files under jobID/.
-func (c *Client) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang string, segments []SegmentStored, segmentAudio [][]byte) error {
+// UploadJob writes prompt, result JSON (with css, title, narrationLang, owner), and per-segment PCM files under jobID/.
+func (c *Client) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail string, segments []SegmentStored, segmentAudio [][]byte) error {
 	if c.bucket == "" {
 		return nil
 	}
@@ -104,6 +106,8 @@ func (c *Client) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode
 		Title:         title,
 		NarrationLang: narrationLang,
 		Segments:      segments,
+		OwnerSub:      ownerSub,
+		OwnerEmail:    ownerEmail,
 	}
 	resultBody, err := json.Marshal(result)
 	if err != nil {

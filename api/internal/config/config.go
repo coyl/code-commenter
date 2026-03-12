@@ -20,6 +20,15 @@ type Config struct {
 	S3Endpoint     string // Custom S3 endpoint (e.g. MinIO); empty = AWS
 	S3AccessKey    string // S3 access key (optional; else default credential chain)
 	S3SecretKey    string // S3 secret key (optional)
+
+	// Google OAuth (all required for auth; if SessionSecret empty, auth is disabled)
+	GoogleClientID     string // OAuth 2.0 client ID
+	GoogleClientSecret string // OAuth 2.0 client secret
+	AuthCallbackURL    string // e.g. https://api.example.com/auth/callback
+	SessionSecret      string // HMAC key for session cookie (32+ bytes recommended)
+
+	// Firestore for job index (owner + listing). Empty = disabled.
+	FirestoreProjectID string
 }
 
 // Load reads config from environment.
@@ -68,6 +77,11 @@ func Load() *Config {
 	s3Endpoint := os.Getenv("S3_ENDPOINT")
 	s3AccessKey := os.Getenv("S3_ACCESS_KEY")
 	s3SecretKey := os.Getenv("S3_SECRET_KEY")
+	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
+	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	authCallbackURL := os.Getenv("AUTH_CALLBACK_URL")
+	sessionSecret := os.Getenv("SESSION_SECRET")
+	firestoreProjectID := os.Getenv("FIRESTORE_PROJECT_ID")
 	return &Config{
 		Port:           port,
 		GeminiAPIKey:   apiKey,
@@ -79,8 +93,18 @@ func Load() *Config {
 		AllowedOrigins: origins,
 		S3Bucket:       s3Bucket,
 		S3Region:       s3Region,
-		S3Endpoint:     s3Endpoint,
-		S3AccessKey:    s3AccessKey,
-		S3SecretKey:    s3SecretKey,
+		S3Endpoint:         s3Endpoint,
+		S3AccessKey:         s3AccessKey,
+		S3SecretKey:         s3SecretKey,
+		GoogleClientID:     googleClientID,
+		GoogleClientSecret: googleClientSecret,
+		AuthCallbackURL:    authCallbackURL,
+		SessionSecret:      sessionSecret,
+		FirestoreProjectID: firestoreProjectID,
 	}
+}
+
+// AuthEnabled returns true when Google OAuth and session are configured.
+func (c *Config) AuthEnabled() bool {
+	return c.SessionSecret != "" && c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.AuthCallbackURL != ""
 }

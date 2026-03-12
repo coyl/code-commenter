@@ -2,6 +2,12 @@ package ports
 
 import "context"
 
+// UserInfo identifies the authenticated user (from session).
+type UserInfo struct {
+	Sub   string // Google subject ID
+	Email string
+}
+
 // CodeSegment is plain code with narration text.
 type CodeSegment struct {
 	Code      string
@@ -60,9 +66,22 @@ type SessionRepository interface {
 
 // JobRepository archives generated jobs and loads them by id.
 type JobRepository interface {
-	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang string, segments []JobSegment, segmentAudio [][]byte) error
+	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail string, segments []JobSegment, segmentAudio [][]byte) error
 	GetJob(ctx context.Context, jobID string) (interface{}, error)
 	IsEnabled() bool
+}
+
+// JobMeta is a minimal job entry for listing (e.g. "my jobs").
+type JobMeta struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
+// JobIndex stores job metadata for listing by owner. Optional; used for GET /jobs/mine.
+type JobIndex interface {
+	Add(ctx context.Context, jobID, ownerSub, ownerEmail, title string) error
+	ListByOwner(ctx context.Context, ownerSub string, limit int) ([]JobMeta, error)
 }
 
 // StreamEvent is a typed internal event for stream delivery.

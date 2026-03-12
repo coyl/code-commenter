@@ -44,3 +44,5 @@ Thumbs.db
 # Misc
 *.local
 .cache/
+
+google-creds.json

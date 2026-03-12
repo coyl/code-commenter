@@ -77,7 +77,7 @@ func (f *fakeSessions) Get(string) *ports.SessionData {
 
 type fakeJobs struct{}
 
-func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
+func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
 	return nil
 }
 func (fakeJobs) GetJob(context.Context, string) (interface{}, error) {

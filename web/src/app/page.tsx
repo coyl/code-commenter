@@ -6,6 +6,8 @@ import GenerationProgress from "@/components/GenerationProgress";
 import { usePCMPlayer } from "@/lib/audio";
 import type { Segment } from "@/domain/stream";
 import { useStreamTask } from "@/features/stream/useStreamTask";
+import { useAuth } from "@/features/auth/useAuth";
+import JobsSidebar from "@/components/JobsSidebar";
 
 type InputTab = "task" | "code";
 
@@ -37,11 +39,13 @@ export default function Home() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [showRawDebug, setShowRawDebug] = useState(false);
   const [rawJsonOutput, setRawJsonOutput] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const styleElRef = useRef<HTMLStyleElement | null>(null);
   const streamEndedRef = useRef(false);
   const newSegmentIndexRef = useRef<number | null>(null);
   const codePlayerRef = useRef<CodePlayerRef | null>(null);
   const { playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs } = usePCMPlayer();
+  const { user, loading: authLoading, signInUrl, signOutUrl } = useAuth();
 
   const streamCallbacks = useMemo(
     () => ({
@@ -108,6 +112,7 @@ export default function Home() {
   }, [segments]);
 
   const submitTaskStream = () => {
+    if (!user) return;
     if (inputTab === "task" && !task.trim()) return;
     if (inputTab === "code" && !userCode.trim()) return;
     clearAllErrors();
@@ -122,11 +127,52 @@ export default function Home() {
   const displayError = error;
 
   return (
-    <main className="min-h-screen p-6 max-w-5xl mx-auto">
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold text-cyan-400">Code Commenter Live Agent</h1>
-        <p className="text-zinc-400 text-sm mt-1">Describe a task → get code with just-in-time streaming and voiceover.</p>
+    <div className="flex min-h-screen">
+      <JobsSidebar
+        open={sidebarOpen}
+        onToggle={() => setSidebarOpen((o) => !o)}
+        signedIn={!!user}
+        refreshTrigger={sessionId}
+      />
+      <main className="flex-1 min-w-0 p-6 max-w-5xl mx-auto">
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-cyan-400">Code Commenter Live Agent</h1>
+          <p className="text-zinc-400 text-sm mt-1">Describe a task → get code with just-in-time streaming and voiceover.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {authLoading ? (
+            <span className="text-zinc-500 text-sm">Checking sign-in…</span>
+          ) : user ? (
+            <>
+              <span className="text-zinc-400 text-sm truncate max-w-[200px]" title={user.email}>
+                {user.email}
+              </span>
+              {signOutUrl && (
+                <a
+                  href={signOutUrl}
+                  className="text-sm text-zinc-400 hover:text-zinc-200 underline"
+                >
+                  Sign out
+                </a>
+              )}
+            </>
+          ) : signInUrl ? (
+            <a
+              href={signInUrl}
+              className="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium"
+            >
+              Sign in with Google
+            </a>
+          ) : null}
+        </div>
       </header>
+
+      {!authLoading && !user && (
+        <div className="mb-6 p-4 rounded-lg bg-amber-900/20 border border-amber-700/50 text-amber-200 text-sm">
+          Sign in with Google to generate jobs. Generation is only available when you are signed in.
+        </div>
+      )}
 
       <section className="mb-6 p-4 rounded-lg bg-zinc-900/80 border border-zinc-700">
         <div className="flex gap-2 mb-2">
@@ -212,7 +258,7 @@ export default function Home() {
           </select>
           <button
             onClick={submitTaskStream}
-            disabled={loading}
+            disabled={loading || !user}
             className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-medium text-sm"
           >
             {loading ? "Generating…" : "Generate"}
@@ -267,6 +313,7 @@ export default function Home() {
           )}
         </>
       )}
-    </main>
+      </main>
+    </div>
   );
 }

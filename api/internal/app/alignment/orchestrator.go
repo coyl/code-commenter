@@ -27,11 +27,13 @@ const MaxUserCodeLength = 5000
 // StreamRequest is the inbound request for a stream session.
 // If Code is non-empty, the flow uses the user's code (format + segment only); otherwise task is used to generate code.
 // NarrationLanguage is the language for voiceover text (e.g. "english", "german").
+// Owner is the authenticated user (required when auth is enabled).
 type StreamRequest struct {
 	Task              string
 	Language          string
 	Code              string // optional: user-provided code for "Your code" flow
 	NarrationLanguage string
+	Owner             *ports.UserInfo // set when auth is required
 }
 
 // StreamOrchestrator coordinates generation, alignment, and persistence.
@@ -372,7 +374,11 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			}
 			segmentAudio = append(segmentAudio, wrapPCM)
 		}
-		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, storedSegments, segmentAudio); upErr != nil {
+		ownerSub, ownerEmail := "", ""
+		if req.Owner != nil {
+			ownerSub, ownerEmail = req.Owner.Sub, req.Owner.Email
+		}
+		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, ownerSub, ownerEmail, storedSegments, segmentAudio); upErr != nil {
 			ev := log.Error().Err(upErr).Str("job", jobID).Dur("timeout", s3UploadTimeout)
 			if errors.Is(upErr, context.DeadlineExceeded) {
 				ev.Msg("S3 upload timed out")

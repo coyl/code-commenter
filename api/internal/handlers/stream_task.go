@@ -7,6 +7,7 @@ import (
 
 	wsadapter "code-commenter/api/internal/adapters/ws"
 	appalignment "code-commenter/api/internal/app/alignment"
+	"code-commenter/api/internal/auth"
 )
 
 // StreamTaskRequest is the first message from client: { "task", "language" } or { "code", "language" } for "Your code" flow.
@@ -37,6 +38,7 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 			return
 		}
 		// Defaults for task/language are applied in orchestrator.Run
+		owner := auth.UserFromContext(r.Context())
 
 		sink := wsadapter.Sink{Conn: ws}
 		_, _ = orchestrator.Run(r.Context(), appalignment.StreamRequest{
@@ -44,6 +46,7 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 			Language:          req.Language,
 			Code:              req.Code,
 			NarrationLanguage: req.NarrationLanguage,
+			Owner:             owner,
 		}, sink)
 	}
 }

@@ -28,6 +28,15 @@ export ALLOWED_ORIGINS=http://localhost:3000
 # export TTS_PER_SEGMENT=on
 # Model for audio timestamp detection in batched TTS (default: gemini-2.5-flash).
 # export TIMESTAMP_MODEL=gemini-2.5-flash
+
+# Optional: Google OAuth + session (when set, generation requires sign-in)
+# export GOOGLE_CLIENT_ID=your-oauth-client-id
+# export GOOGLE_CLIENT_SECRET=your-oauth-client-secret
+# export AUTH_CALLBACK_URL=https://your-api-domain.com/auth/callback
+# export SESSION_SECRET=at-least-32-byte-random-string-for-cookie-signing
+
+# Optional: Firestore for job index (enables "My jobs" list when auth is enabled)
+# export FIRESTORE_PROJECT_ID=your-gcp-project-id
 ```
 
 For the frontend, create `web/.env.local` (optional):
@@ -174,8 +183,23 @@ See [doc/architecture.md](doc/architecture.md) for the Mermaid diagram (Browser 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET    | `/task/stream` | WebSocket: stream task with `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`. |
+| GET    | `/task/stream` | WebSocket: stream task with `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`. Requires auth when OAuth is configured. |
 | GET    | `/live` | WebSocket: proxy to Gemini Live API for voice in/out. |
+| GET    | `/auth/start` | Redirect to Google OAuth. Query: `redirect` (URL to return to after login). |
+| GET    | `/auth/callback` | OAuth callback; sets session cookie and redirects. |
+| GET    | `/auth/logout` | Clears session cookie and redirects. Query: `redirect`. |
+| GET    | `/me` | Returns `{ sub, email }` when signed in; 401 otherwise. Requires cookies. |
+| GET    | `/jobs/mine` | Returns list of current user's jobs `[{ id, title, createdAt }]`. Requires auth. Query: `limit` (default 50). |
+| GET    | `/jobs/{id}` | Returns job by ID (public; used for permalinks and embed). |
+
+## Auth and jobs
+
+When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_CALLBACK_URL`, and `SESSION_SECRET` are all set, the API requires sign-in for generation:
+
+- Unauthenticated requests to `GET /task/stream` receive 401.
+- The frontend shows "Sign in with Google"; after sign-in, the session cookie is sent with requests (use `credentials: 'include'` and ensure `ALLOWED_ORIGINS` matches the web origin so CORS allows credentials).
+
+With `FIRESTORE_PROJECT_ID` set, job metadata (owner, title, createdAt) is written to Firestore on each upload. The "My jobs" sidebar calls `GET /jobs/mine` to list the current user's jobs. Create a Firestore composite index: collection `jobs`, fields `ownerSub` (Ascending) and `createdAt` (Descending). The Firebase console will prompt with a link when the first query runs.
 
 ## Embeddable job player
 
