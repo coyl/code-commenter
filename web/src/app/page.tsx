@@ -8,6 +8,7 @@ import type { Segment } from "@/domain/stream";
 import { useStreamTask } from "@/features/stream/useStreamTask";
 import { useAuth } from "@/features/auth/useAuth";
 import JobsSidebar from "@/components/JobsSidebar";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 type InputTab = "task" | "code";
 
@@ -126,6 +127,8 @@ export default function Home() {
 
   const displayError = error;
 
+  const showAuthOverlay = !authLoading && !user && !!signInUrl;
+
   return (
     <div className="flex min-h-screen">
       <JobsSidebar
@@ -134,7 +137,7 @@ export default function Home() {
         signedIn={!!user}
         refreshTrigger={sessionId}
       />
-      <main className="flex-1 min-w-0 p-6 max-w-5xl mx-auto">
+      <main className="flex-1 min-w-0 p-6 max-w-5xl mx-auto relative">
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-cyan-400">Code Commenter Live Agent</h1>
@@ -167,12 +170,6 @@ export default function Home() {
           ) : null}
         </div>
       </header>
-
-      {!authLoading && !user && (
-        <div className="mb-6 p-4 rounded-lg bg-amber-900/20 border border-amber-700/50 text-amber-200 text-sm">
-          Sign in with Google to generate jobs. Generation is only available when you are signed in.
-        </div>
-      )}
 
       <section className="mb-6 p-4 rounded-lg bg-zinc-900/80 border border-zinc-700">
         <div className="flex gap-2 mb-2">
@@ -312,6 +309,21 @@ export default function Home() {
             </div>
           )}
         </>
+      )}
+
+      {showAuthOverlay && signInUrl && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-md bg-black/50 rounded-lg"
+          aria-modal
+          aria-label="Sign in required"
+        >
+          <div className="bg-zinc-900/95 border border-zinc-700 rounded-xl p-8 max-w-sm w-full mx-4 shadow-xl text-center">
+            <p className="text-zinc-300 text-sm leading-relaxed mb-6">
+              Sign in with Google to generate jobs. Generation is only available when you are signed in.
+            </p>
+            <GoogleSignInButton href={signInUrl} />
+          </div>
+        </div>
       )}
       </main>
     </div>
