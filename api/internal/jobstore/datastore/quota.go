@@ -77,6 +77,50 @@ func (q *Quota) IncrementToday(ctx context.Context, ownerSub string) error {
 	return err
 }
 
+// TryConsumeSlot atomically consumes one slot if under DailyGenerationLimit. Returns true if consumed, false if at limit.
+func (q *Quota) TryConsumeSlot(ctx context.Context, ownerSub string) (bool, error) {
+	if q == nil || q.client == nil || ownerSub == "" {
+		return true, nil
+	}
+	key := datastore.NameKey(kindDailyQuota, ownerSub+"_"+todayKey(), nil)
+	var consumed bool
+	_, err := q.client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
+		var ent quotaEntity
+		if err := tx.Get(key, &ent); err != nil && err != datastore.ErrNoSuchEntity {
+			return err
+		}
+		if ent.Count >= ports.DailyGenerationLimit {
+			consumed = false
+			return nil
+		}
+		ent.Count++
+		consumed = true
+		_, err := tx.Put(key, &ent)
+		return err
+	})
+	return consumed, err
+}
+
+// ReleaseSlot decrements today's count by one (e.g. when generation failed after TryConsumeSlot).
+func (q *Quota) ReleaseSlot(ctx context.Context, ownerSub string) error {
+	if q == nil || q.client == nil || ownerSub == "" {
+		return nil
+	}
+	key := datastore.NameKey(kindDailyQuota, ownerSub+"_"+todayKey(), nil)
+	_, err := q.client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
+		var ent quotaEntity
+		if err := tx.Get(key, &ent); err != nil && err != datastore.ErrNoSuchEntity {
+			return err
+		}
+		if ent.Count > 0 {
+			ent.Count--
+		}
+		_, err := tx.Put(key, &ent)
+		return err
+	})
+	return err
+}
+
 // Close releases the client. No-op if Quota was created from shared client.
 func (q *Quota) Close() error {
 	if q == nil || q.client == nil {

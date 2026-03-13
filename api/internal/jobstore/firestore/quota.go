@@ -87,6 +87,64 @@ func (q *Quota) IncrementToday(ctx context.Context, ownerSub string) error {
 	})
 }
 
+// TryConsumeSlot atomically consumes one slot if under DailyGenerationLimit. Returns true if consumed, false if at limit.
+func (q *Quota) TryConsumeSlot(ctx context.Context, ownerSub string) (bool, error) {
+	if q == nil || q.client == nil || ownerSub == "" {
+		return true, nil
+	}
+	docRef := q.client.Collection(collectionDailyQuota).Doc(ownerSub + "_" + todayKey())
+	var consumed bool
+	err := q.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		doc, err := tx.Get(docRef)
+		count := 0
+		if err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+		if err == nil {
+			var data struct {
+				Count int `firestore:"count"`
+			}
+			if doc.DataTo(&data) == nil {
+				count = data.Count
+			}
+		}
+		if count >= ports.DailyGenerationLimit {
+			consumed = false
+			return nil
+		}
+		consumed = true
+		return tx.Set(docRef, map[string]int{"count": count + 1})
+	})
+	return consumed, err
+}
+
+// ReleaseSlot decrements today's count by one (e.g. when generation failed after TryConsumeSlot).
+func (q *Quota) ReleaseSlot(ctx context.Context, ownerSub string) error {
+	if q == nil || q.client == nil || ownerSub == "" {
+		return nil
+	}
+	docRef := q.client.Collection(collectionDailyQuota).Doc(ownerSub + "_" + todayKey())
+	return q.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		doc, err := tx.Get(docRef)
+		count := 0
+		if err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+		if err == nil {
+			var data struct {
+				Count int `firestore:"count"`
+			}
+			if doc.DataTo(&data) == nil {
+				count = data.Count
+			}
+		}
+		if count > 0 {
+			count--
+		}
+		return tx.Set(docRef, map[string]int{"count": count})
+	})
+}
+
 // Close releases the Firestore client.
 func (q *Quota) Close() error {
 	if q == nil || q.client == nil {

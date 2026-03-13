@@ -20,7 +20,7 @@ type StreamTaskRequest struct {
 }
 
 // HandleStreamTask runs the stream orchestrator and forwards typed events over websocket.
-// When quota is non-nil and auth is enabled, enforces daily generation limit before run and increments after success.
+// When quota is non-nil and auth is enabled, atomically consumes a slot (TryConsumeSlot) before run and releases it (ReleaseSlot) on failure.
 func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey string, quota ports.DailyQuota) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if apiKey == "" {
@@ -42,12 +42,12 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 		owner := auth.UserFromContext(r.Context())
 
 		if owner != nil && quota != nil {
-			count, err := quota.GetTodayCount(r.Context(), owner.Sub)
+			ok, err := quota.TryConsumeSlot(r.Context(), owner.Sub)
 			if err != nil {
 				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "quota check failed"})
 				return
 			}
-			if count >= ports.DailyGenerationLimit {
+			if !ok {
 				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "Daily limit reached. You can generate up to 3 tasks per day."})
 				return
 			}
@@ -62,8 +62,8 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 			Owner:             owner,
 		}, sink)
 
-		if runErr == nil && owner != nil && quota != nil {
-			_ = quota.IncrementToday(r.Context(), owner.Sub)
+		if runErr != nil && owner != nil && quota != nil {
+			_ = quota.ReleaseSlot(r.Context(), owner.Sub)
 		}
 	}
 }
