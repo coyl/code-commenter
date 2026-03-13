@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"code-commenter/api/internal/ports"
 )
@@ -45,11 +47,11 @@ func (q *Quota) GetTodayCount(ctx context.Context, ownerSub string) (int, error)
 	}
 	docRef := q.client.Collection(collectionDailyQuota).Doc(ownerSub + "_" + todayKey())
 	doc, err := docRef.Get(ctx)
+	if status.Code(err) == codes.NotFound {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
-	}
-	if !doc.Exists() {
-		return 0, nil
 	}
 	var data struct {
 		Count int `firestore:"count"`
@@ -69,7 +71,10 @@ func (q *Quota) IncrementToday(ctx context.Context, ownerSub string) error {
 	return q.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		doc, err := tx.Get(docRef)
 		count := 0
-		if err == nil && doc.Exists() {
+		if err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+		if err == nil {
 			var data struct {
 				Count int `firestore:"count"`
 			}
