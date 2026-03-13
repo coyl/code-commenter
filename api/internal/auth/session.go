@@ -34,8 +34,10 @@ func isSecureRequest(r *http.Request) bool {
 }
 
 // SetSession writes a signed session cookie with the user.
-// SameSite=None is required so the cookie is sent on cross-site requests (e.g. web app → API).
-// Secure is set from the request (HTTPS or X-Forwarded-Proto).
+// When the request is HTTPS: SameSite=None and Secure=true so the cookie is sent on cross-site
+// requests (e.g. web app on one domain → API on another). Browsers require Secure when SameSite=None.
+// When the request is HTTP (e.g. local dev): SameSite=Lax and Secure=false so the cookie is
+// stored and sent; same-origin (e.g. localhost:3010 → localhost:8080) still works as same site.
 func SetSession(w http.ResponseWriter, r *http.Request, secret string, u *ports.UserInfo) {
 	if secret == "" || u == nil {
 		return
@@ -49,28 +51,42 @@ func SetSession(w http.ResponseWriter, r *http.Request, secret string, u *ports.
 	b64 := base64.RawURLEncoding.EncodeToString(raw)
 	sig := signSession(secret, b64)
 	value := b64 + "." + sig
-	http.SetCookie(w, &http.Cookie{
+	secure := isSecureRequest(r)
+	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   sessionMaxAge,
-		SameSite: http.SameSiteNoneMode, // required for cross-site send (web → API)
-		Secure:   isSecureRequest(r),
 		HttpOnly: true,
-	})
+	}
+	if secure {
+		cookie.SameSite = http.SameSiteNoneMode
+		cookie.Secure = true
+	} else {
+		cookie.SameSite = http.SameSiteLaxMode
+		cookie.Secure = false
+	}
+	http.SetCookie(w, cookie)
 }
 
 // ClearSession removes the session cookie. Secure/SameSite must match SetSession so the browser clears it.
 func ClearSession(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
+	secure := isSecureRequest(r)
+	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
-		SameSite: http.SameSiteNoneMode,
-		Secure:   isSecureRequest(r),
 		HttpOnly: true,
-	})
+	}
+	if secure {
+		cookie.SameSite = http.SameSiteNoneMode
+		cookie.Secure = true
+	} else {
+		cookie.SameSite = http.SameSiteLaxMode
+		cookie.Secure = false
+	}
+	http.SetCookie(w, cookie)
 }
 
 // FromRequest returns the user from the request's session cookie, or nil.
