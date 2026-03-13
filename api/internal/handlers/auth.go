@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"code-commenter/api/internal/auth"
+	"code-commenter/api/internal/ports"
 )
 
 // HandleAuthStart redirects to Google OAuth. Query param "redirect" is the URL to send the user to after login.
@@ -67,7 +68,8 @@ func HandleLogout(sessionSecret string, allowedOrigins []string) http.HandlerFun
 }
 
 // HandleMe returns the current user as JSON or 401 if not signed in. Requires WithSession.
-func HandleMe() http.HandlerFunc {
+// When quota is non-nil, includes quotaRemaining in the response.
+func HandleMe(quota ports.DailyQuota) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := auth.UserFromContext(r.Context())
 		if u == nil {
@@ -75,7 +77,23 @@ func HandleMe() http.HandlerFunc {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		resp := map[string]interface{}{
+			"sub":   u.Sub,
+			"email": u.Email,
+		}
+		if quota != nil {
+			count, err := quota.GetTodayCount(r.Context(), u.Sub)
+			if err != nil {
+				log.Error().Err(err).Str("sub", u.Sub).Msg("quota check in /me")
+			} else {
+				remaining := ports.DailyGenerationLimit - count
+				if remaining < 0 {
+					remaining = 0
+				}
+				resp["quotaRemaining"] = remaining
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"sub": u.Sub, "email": u.Email})
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }

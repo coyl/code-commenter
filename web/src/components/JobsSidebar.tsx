@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { fetchApiAdapter } from "@/adapters/api";
 import type { JobMeta } from "@/domain/api";
@@ -36,19 +36,24 @@ export default function JobsSidebar({
   const [jobs, setJobs] = useState<JobMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fetchIdRef = useRef(0);
 
   const fetchJobs = useCallback(async () => {
     if (!signedIn) return;
+    fetchIdRef.current += 1;
+    const thisFetchId = fetchIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const list = await api.listMyJobs(50);
-      setJobs(list);
+      if (thisFetchId === fetchIdRef.current) setJobs(list);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load jobs");
-      setJobs([]);
+      if (thisFetchId === fetchIdRef.current) {
+        setError(e instanceof Error ? e.message : "Failed to load jobs");
+        setJobs([]);
+      }
     } finally {
-      setLoading(false);
+      if (thisFetchId === fetchIdRef.current) setLoading(false);
     }
   }, [signedIn, api]);
 
@@ -107,6 +112,8 @@ export default function JobsSidebar({
                 <li key={job.id}>
                   <Link
                     href={`/jobs/${job.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="block px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 border-l-2 border-transparent hover:border-cyan-500"
                   >
                     <span className="block truncate font-medium" title={job.title}>

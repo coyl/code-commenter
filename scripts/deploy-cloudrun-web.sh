@@ -5,7 +5,7 @@
 #   If GCP_PROJECT_ID is given, switches gcloud to that project before deploying.
 # Requires: API_URL (backend URL). Loaded from .env.prod or env; set as Cloud Run env so the container writes config.json at start.
 #   If API_URL is not set, the script tries to read the API service URL from the already-deployed code-commenter-api service.
-# After deploy, updates the API service's ALLOWED_ORIGINS to include the new web URL.
+# After deploy, updates the API service's ALLOWED_ORIGINS to the Cloud Run web URL plus any EXTRA_ALLOWED_ORIGINS from .env.prod (comma-separated origins, e.g. custom domains).
 
 set -e
 
@@ -65,10 +65,23 @@ gcloud run deploy "$WEB_SERVICE" \
 WEB_URL="https://${WEB_SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app"
 echo "Web URL: $WEB_URL"
 
+# Build ALLOWED_ORIGINS: Cloud Run web URL + optional extra origins from .env.prod (e.g. custom domain)
+ALLOWED_ORIGINS="$WEB_URL"
+if [[ -n "${EXTRA_ALLOWED_ORIGINS:-}" ]]; then
+  # Trim leading/trailing whitespace so we don't add empty entries
+  extra="${EXTRA_ALLOWED_ORIGINS#"${EXTRA_ALLOWED_ORIGINS%%[![:space:]]*}"}"
+  extra="${extra%"${extra##*[![:space:]]}"}"
+  if [[ -n "$extra" ]]; then
+    ALLOWED_ORIGINS="$WEB_URL,$extra"
+  fi
+fi
+echo "ALLOWED_ORIGINS: $ALLOWED_ORIGINS"
+
 echo "--- Updating API CORS (ALLOWED_ORIGINS) ---"
+# Use ^||^ to change gcloud's key=val delimiter from comma to || (the value itself contains commas)
 gcloud run services update "$API_SERVICE" \
   --region "$REGION" \
-  --update-env-vars "ALLOWED_ORIGINS=$WEB_URL" \
+  --update-env-vars "^||^ALLOWED_ORIGINS=$ALLOWED_ORIGINS" \
   --quiet
 
 echo "--- Done ---"

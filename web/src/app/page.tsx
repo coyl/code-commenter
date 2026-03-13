@@ -41,12 +41,13 @@ export default function Home() {
   const [showRawDebug, setShowRawDebug] = useState(false);
   const [rawJsonOutput, setRawJsonOutput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const styleElRef = useRef<HTMLStyleElement | null>(null);
   const streamEndedRef = useRef(false);
   const newSegmentIndexRef = useRef<number | null>(null);
   const codePlayerRef = useRef<CodePlayerRef | null>(null);
   const { playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs } = usePCMPlayer();
-  const { user, loading: authLoading, signInUrl, signOutUrl } = useAuth();
+  const { user, loading: authLoading, authConfigured, signInUrl, signOutUrl, quotaRemaining, refetch: refetchAuth } = useAuth();
 
   const streamCallbacks = useMemo(
     () => ({
@@ -112,8 +113,21 @@ export default function Home() {
     if (segments.length > idx) codePlayerRef.current?.playSegment(idx);
   }, [segments]);
 
+  // After successful generation, session event fires before backend finishes writing to job index; refetch jobs list and quota after a delay.
+  useEffect(() => {
+    if (!sessionId || !authConfigured) return;
+    const t = setTimeout(() => {
+      setJobsRefreshKey((k) => k + 1);
+      refetchAuth();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [sessionId, authConfigured, refetchAuth]);
+
+  const quotaExhausted = authConfigured && user && quotaRemaining !== undefined && quotaRemaining <= 0;
+
   const submitTaskStream = () => {
-    if (!user) return;
+    if (authConfigured && !user) return;
+    if (quotaExhausted) return;
     if (inputTab === "task" && !task.trim()) return;
     if (inputTab === "code" && !userCode.trim()) return;
     clearAllErrors();
@@ -127,20 +141,22 @@ export default function Home() {
 
   const displayError = error;
 
-  const showAuthOverlay = !authLoading && !user && !!signInUrl;
+  const showAuthOverlay = !authLoading && authConfigured && !user && !!signInUrl;
 
   return (
     <div className="flex min-h-screen">
-      <JobsSidebar
-        open={sidebarOpen}
-        onToggle={() => setSidebarOpen((o) => !o)}
-        signedIn={!!user}
-        refreshTrigger={sessionId}
-      />
+      {authConfigured && (
+        <JobsSidebar
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen((o) => !o)}
+          signedIn={!!user}
+          refreshTrigger={sessionId ? `${sessionId}-${jobsRefreshKey}` : undefined}
+        />
+      )}
       <main className="flex-1 min-w-0 p-6 max-w-5xl mx-auto relative">
       <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-cyan-400">Code Commenter Live Agent</h1>
+          <h1 className="text-2xl font-bold text-cyan-400">Anee Explainee</h1>
           <p className="text-zinc-400 text-sm mt-1">Describe a task → get code with just-in-time streaming and voiceover.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -255,12 +271,21 @@ export default function Home() {
           </select>
           <button
             onClick={submitTaskStream}
-            disabled={loading || !user}
-            className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-medium text-sm"
+            disabled={loading || (authConfigured && !user) || !!quotaExhausted}
+            className={`px-4 py-2 rounded-lg text-white font-medium text-sm ${
+              quotaExhausted
+                ? "bg-zinc-600 cursor-not-allowed"
+                : "bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50"
+            }`}
           >
             {loading ? "Generating…" : "Generate"}
           </button>
         </div>
+        {quotaExhausted && (
+          <p className="mt-2 text-amber-400 text-sm">
+            Daily limit reached — you can generate up to 3 times per 24 hours.
+          </p>
+        )}
       </section>
 
       {loading && <GenerationProgress stage={stage} />}

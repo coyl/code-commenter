@@ -1,4 +1,4 @@
-# Code Commenter Live Agent
+# Anee Explainee
 
 Describe a coding task (text or live voice) and get code with just-in-time streaming and Gemini Live API voiceover. The UI shows live progress stages (e.g. “Generating task spec”, “Generating CSS”, “Generating voiceover”) while the backend streams spec, CSS, code segments, and audio.
 
@@ -32,7 +32,9 @@ export ALLOWED_ORIGINS=http://localhost:3000
 # Optional: Google OAuth + session (when set, generation requires sign-in)
 # export GOOGLE_CLIENT_ID=your-oauth-client-id
 # export GOOGLE_CLIENT_SECRET=your-oauth-client-secret
-# export AUTH_CALLBACK_URL=https://your-api-domain.com/auth/callback
+# AUTH_CALLBACK_URL = frontend OAuth callback (Google redirects here; register this in Google Cloud Console)
+#   Local: http://localhost:3010/auth/callback   Prod: https://your-app-domain.com/auth/callback
+# export AUTH_CALLBACK_URL=https://your-app-domain.com/auth/callback
 # export SESSION_SECRET=at-least-32-byte-random-string-for-cookie-signing
 
 # Optional: Job index for "My jobs" (use one when auth is enabled)
@@ -118,7 +120,7 @@ The script loads `.env.prod`, deploys the API (with those env vars), then the fr
 
 Requires `gcloud` CLI and an existing GCP project (builds run in Cloud Build; local Docker not required). The script uses region `europe-west1` (Frankfurt) unless you set `REGION` in the environment.
 
-To deploy only the frontend (e.g. after changing the web app or switching API URL), use `./scripts/deploy-cloudrun-web.sh [GCP_PROJECT_ID]`. It needs the API base URL: set `API_URL` in `.env.prod` or in the environment, or have the API already deployed in the same project/region so the script can discover it.
+To deploy only the frontend (e.g. after changing the web app or switching API URL), use `./scripts/deploy-cloudrun-web.sh [GCP_PROJECT_ID]`. It needs the API base URL: set `API_URL` in `.env.prod` or in the environment, or have the API already deployed in the same project/region so the script can discover it. To allow a custom domain (e.g. `https://code.vasiliy.pro`) in CORS, set `EXTRA_ALLOWED_ORIGINS` in `.env.prod` (comma-separated list); the script merges it with the Cloud Run web URL when updating the API’s `ALLOWED_ORIGINS`.
 
 ### 5. Deploy backend to Google Cloud Run (manual)
 
@@ -201,6 +203,7 @@ See [doc/architecture.md](doc/architecture.md) for the Mermaid diagram (Browser 
 
 When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_CALLBACK_URL`, and `SESSION_SECRET` are all set, the API requires sign-in for generation:
 
+- Set `AUTH_CALLBACK_URL` to the **frontend** OAuth callback (e.g. `http://localhost:3010/auth/callback` or `https://your-app.com/auth/callback`). Google redirects users there after sign-in; the frontend then sends the auth code to the API to complete login. This way the URL shown on the Google sign-in screen is your app’s domain.
 - Unauthenticated requests to `GET /task/stream` receive 401.
 - The frontend shows "Sign in with Google"; after sign-in, the session cookie is sent with requests (use `credentials: 'include'` and ensure `ALLOWED_ORIGINS` matches the web origin so CORS allows credentials).
 

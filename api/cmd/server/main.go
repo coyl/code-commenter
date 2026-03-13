@@ -65,6 +65,7 @@ func main() {
 		jobRepository = &jobstoreadapter.Adapter{Store: jobStore}
 	}
 	var jobIndex ports.JobIndex
+	var dailyQuota ports.DailyQuota
 	switch cfg.JobIndexBackend() {
 	case "datastore":
 		dsIdx, err := dsindex.NewIndex(ctx, cfg.DatastoreProjectID, cfg.DatastoreDatabaseID)
@@ -76,6 +77,16 @@ func main() {
 			jobIndex = dsIdx
 			jobRepository = &jobstoreadapter.CompositeRepository{Repo: jobRepository, Index: jobIndex}
 		}
+		if cfg.AuthEnabled() {
+			dsQuota, err := dsindex.NewQuota(ctx, cfg.DatastoreProjectID, cfg.DatastoreDatabaseID)
+			if err != nil {
+				log.Fatal().Err(err).Msg("datastore quota")
+			}
+			if dsQuota != nil {
+				defer func() { _ = dsQuota.Close() }()
+				dailyQuota = dsQuota
+			}
+		}
 	case "firestore":
 		fsIndex, err := firestore.NewIndex(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
 		if err != nil {
@@ -85,6 +96,16 @@ func main() {
 			defer func() { _ = fsIndex.Close() }()
 			jobIndex = fsIndex
 			jobRepository = &jobstoreadapter.CompositeRepository{Repo: jobRepository, Index: jobIndex}
+		}
+		if cfg.AuthEnabled() {
+			fsQuota, err := firestore.NewQuota(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
+			if err != nil {
+				log.Fatal().Err(err).Msg("firestore quota")
+			}
+			if fsQuota != nil {
+				defer func() { _ = fsQuota.Close() }()
+				dailyQuota = fsQuota
+			}
 		}
 	}
 
@@ -101,14 +122,14 @@ func main() {
 	mux := http.NewServeMux()
 	allowedOrigins := parseAllowedOrigins(cfg.AllowedOrigins)
 
-	var streamHandler http.Handler = http.HandlerFunc(handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey))
+	var streamHandler http.Handler = http.HandlerFunc(handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey, dailyQuota))
 	if cfg.AuthEnabled() {
 		oauthCfg := auth.NewOAuthConfig(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.AuthCallbackURL)
 		mux.HandleFunc("GET /auth/start", handlers.HandleAuthStart(oauthCfg, allowedOrigins))
 		mux.HandleFunc("GET /auth/callback", handlers.HandleAuthCallback(oauthCfg, cfg.SessionSecret, allowedOrigins))
 		mux.HandleFunc("GET /auth/logout", handlers.HandleLogout(cfg.SessionSecret, allowedOrigins))
-		mux.Handle("GET /me", auth.WithSession(cfg.SessionSecret, handlers.HandleMe()))
-		streamHandler = auth.WithSession(cfg.SessionSecret, auth.RequireAuth(handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey)))
+		mux.Handle("GET /me", auth.WithSession(cfg.SessionSecret, handlers.HandleMe(dailyQuota)))
+		streamHandler = auth.WithSession(cfg.SessionSecret, auth.RequireAuth(handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey, dailyQuota)))
 		if jobIndex != nil {
 			mux.Handle("GET /jobs/mine", auth.WithSession(cfg.SessionSecret, auth.RequireAuth(handlers.HandleListMyJobs(jobIndex, 50))))
 		}

@@ -4,6 +4,8 @@
 export type UserInfo = {
   sub: string;
   email: string;
+  /** Remaining daily generations. Undefined when quota is not configured on the backend. */
+  quotaRemaining?: number;
 };
 
 /**

@@ -84,6 +84,15 @@ type JobIndex interface {
 	ListByOwner(ctx context.Context, ownerSub string, limit int) ([]JobMeta, error)
 }
 
+// DailyQuota limits generations per user per day. When auth is enabled, stream handler checks before run and increments after success.
+type DailyQuota interface {
+	GetTodayCount(ctx context.Context, ownerSub string) (int, error)
+	IncrementToday(ctx context.Context, ownerSub string) error
+}
+
+// DailyGenerationLimit is the max generations per user per day when quota is enforced.
+const DailyGenerationLimit = 3
+
 // StreamEvent is a typed internal event for stream delivery.
 type StreamEvent struct {
 	Type         string
