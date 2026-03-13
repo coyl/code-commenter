@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -63,7 +65,11 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 		}, sink)
 
 		if runErr != nil && owner != nil && quota != nil {
-			_ = quota.ReleaseSlot(r.Context(), owner.Sub)
+			// Use a short-lived background context so ReleaseSlot can complete even when
+			// r.Context() is already canceled (e.g. client disconnect, timeout).
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = quota.ReleaseSlot(releaseCtx, owner.Sub)
 		}
 	}
 }
