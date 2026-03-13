@@ -2,6 +2,12 @@ package ports
 
 import "context"
 
+// UserInfo identifies the authenticated user (from session).
+type UserInfo struct {
+	Sub   string // Google subject ID
+	Email string
+}
+
 // CodeSegment is plain code with narration text.
 type CodeSegment struct {
 	Code      string
@@ -60,10 +66,35 @@ type SessionRepository interface {
 
 // JobRepository archives generated jobs and loads them by id.
 type JobRepository interface {
-	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang string, segments []JobSegment, segmentAudio [][]byte) error
+	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail string, segments []JobSegment, segmentAudio [][]byte) error
 	GetJob(ctx context.Context, jobID string) (interface{}, error)
 	IsEnabled() bool
 }
+
+// JobMeta is a minimal job entry for listing (e.g. "my jobs").
+type JobMeta struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
+// JobIndex stores job metadata for listing by owner. Optional; used for GET /jobs/mine.
+type JobIndex interface {
+	Add(ctx context.Context, jobID, ownerSub, ownerEmail, title string) error
+	ListByOwner(ctx context.Context, ownerSub string, limit int) ([]JobMeta, error)
+}
+
+// DailyQuota limits generations per user per day. When auth is enabled, stream handler uses TryConsumeSlot before run and ReleaseSlot on failure.
+type DailyQuota interface {
+	GetTodayCount(ctx context.Context, ownerSub string) (int, error)
+	// TryConsumeSlot atomically consumes one slot if under limit. Returns true if consumed, false if at limit. Use ReleaseSlot if generation later fails.
+	TryConsumeSlot(ctx context.Context, ownerSub string) (ok bool, err error)
+	// ReleaseSlot returns one slot (e.g. when generation failed after TryConsumeSlot succeeded).
+	ReleaseSlot(ctx context.Context, ownerSub string) error
+}
+
+// DailyGenerationLimit is the max generations per user per day when quota is enforced.
+const DailyGenerationLimit = 3
 
 // StreamEvent is a typed internal event for stream delivery.
 type StreamEvent struct {

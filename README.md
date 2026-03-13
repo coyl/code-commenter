@@ -1,4 +1,4 @@
-# Code Commenter Live Agent
+# Anee Explainee
 
 Describe a coding task (text or live voice) and get code with just-in-time streaming and Gemini Live API voiceover. The UI shows live progress stages (e.g. “Generating task spec”, “Generating CSS”, “Generating voiceover”) while the backend streams spec, CSS, code segments, and audio.
 
@@ -28,6 +28,22 @@ export ALLOWED_ORIGINS=http://localhost:3000
 # export TTS_PER_SEGMENT=on
 # Model for audio timestamp detection in batched TTS (default: gemini-2.5-flash).
 # export TIMESTAMP_MODEL=gemini-2.5-flash
+
+# Optional: Google OAuth + session (when set, generation requires sign-in)
+# export GOOGLE_CLIENT_ID=your-oauth-client-id
+# export GOOGLE_CLIENT_SECRET=your-oauth-client-secret
+# AUTH_CALLBACK_URL = frontend OAuth callback (Google redirects here; register this in Google Cloud Console)
+#   Local: http://localhost:3010/auth/callback   Prod: https://your-app-domain.com/auth/callback
+# export AUTH_CALLBACK_URL=https://your-app-domain.com/auth/callback
+# export SESSION_SECRET=at-least-32-byte-random-string-for-cookie-signing
+
+# Optional: Job index for "My jobs" (use one when auth is enabled)
+# Firestore (Native mode):
+# export FIRESTORE_PROJECT_ID=your-gcp-project-id
+# export FIRESTORE_DATABASE_ID=your-database-id   # optional; omit for (default)
+# Datastore / Firestore in Datastore mode (use when Firestore API is not available):
+# export DATASTORE_PROJECT_ID=your-gcp-project-id
+# export DATASTORE_DATABASE_ID=code-commenter   # named database; omit for (default)
 ```
 
 For the frontend, create `web/.env.local` (optional):
@@ -104,7 +120,7 @@ The script loads `.env.prod`, deploys the API (with those env vars), then the fr
 
 Requires `gcloud` CLI and an existing GCP project (builds run in Cloud Build; local Docker not required). The script uses region `europe-west1` (Frankfurt) unless you set `REGION` in the environment.
 
-To deploy only the frontend (e.g. after changing the web app or switching API URL), use `./scripts/deploy-cloudrun-web.sh [GCP_PROJECT_ID]`. It needs the API base URL: set `API_URL` in `.env.prod` or in the environment, or have the API already deployed in the same project/region so the script can discover it.
+To deploy only the frontend (e.g. after changing the web app or switching API URL), use `./scripts/deploy-cloudrun-web.sh [GCP_PROJECT_ID]`. It needs the API base URL: set `API_URL` in `.env.prod` or in the environment, or have the API already deployed in the same project/region so the script can discover it. To allow a custom domain (e.g. `https://code.vasiliy.pro`) in CORS, set `EXTRA_ALLOWED_ORIGINS` in `.env.prod` (comma-separated list); the script merges it with the Cloud Run web URL when updating the API’s `ALLOWED_ORIGINS`.
 
 ### 5. Deploy backend to Google Cloud Run (manual)
 
@@ -174,8 +190,27 @@ See [doc/architecture.md](doc/architecture.md) for the Mermaid diagram (Browser 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET    | `/task/stream` | WebSocket: stream task with `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`. |
+| GET    | `/task/stream` | WebSocket: stream task with `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`. Requires auth when OAuth is configured. |
 | GET    | `/live` | WebSocket: proxy to Gemini Live API for voice in/out. |
+| GET    | `/auth/start` | Redirect to Google OAuth. Query: `redirect` (URL to return to after login). |
+| GET    | `/auth/callback` | OAuth callback; sets session cookie and redirects. |
+| GET    | `/auth/logout` | Clears session cookie and redirects. Query: `redirect`. |
+| GET    | `/me` | Returns `{ sub, email }` when signed in; 401 otherwise. Requires cookies. |
+| GET    | `/jobs/mine` | Returns list of current user's jobs `[{ id, title, createdAt }]`. Requires auth. Query: `limit` (default 50). |
+| GET    | `/jobs/{id}` | Returns job by ID (public; used for permalinks and embed). |
+
+## Auth and jobs
+
+When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_CALLBACK_URL`, and `SESSION_SECRET` are all set, the API requires sign-in for generation:
+
+- Set `AUTH_CALLBACK_URL` to the **frontend** OAuth callback (e.g. `http://localhost:3010/auth/callback` or `https://your-app.com/auth/callback`). Google redirects users there after sign-in; the frontend then sends the auth code to the API to complete login. This way the URL shown on the Google sign-in screen is your app’s domain.
+- Unauthenticated requests to `GET /task/stream` receive 401.
+- The frontend shows "Sign in with Google"; after sign-in, the session cookie is sent with requests (use `credentials: 'include'` and ensure `ALLOWED_ORIGINS` matches the web origin so CORS allows credentials).
+
+With a job index configured, job metadata (owner, title, createdAt) is written on each upload. The "My jobs" sidebar calls `GET /jobs/mine` to list the current user's jobs.
+
+- **Firestore (Native):** set `FIRESTORE_PROJECT_ID` (and optionally `FIRESTORE_DATABASE_ID`). Create a composite index: collection `jobs`, fields `ownerSub` (Ascending) and `createdAt` (Descending). The Firebase console will prompt with a link when the first query runs.
+- **Datastore / Firestore in Datastore mode:** set `DATASTORE_PROJECT_ID` when your database is in Datastore mode (the Cloud Firestore API is not available for that database). Set `DATASTORE_DATABASE_ID` to your named database (e.g. `code-commenter`); omit for the default database. Create a composite index: kind `Job`, properties `ownerSub` (Ascending) and `createdAt` (Descending). Use `gcloud datastore indexes create api/index.yaml --project=YOUR_PROJECT_ID` (add `--database=YOUR_DATABASE_ID` for a named database) or the link from the first-query error in the console.
 
 ## Embeddable job player
 

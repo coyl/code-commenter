@@ -1,8 +1,8 @@
-# Code Commenter Live Agent — Architecture
+# Anee Explainee — Architecture
 
 ## Overview
 
-Code Commenter is a hackathon-compliant web app where users describe a coding task (text or live voice), receive dynamically generated CSS and code with a typing effect and Gemini Live API voiceover.
+Anee Explainee is a hackathon-compliant web app where users describe a coding task (text or live voice), receive dynamically generated CSS and code with a typing effect and Gemini Live API voiceover.
 
 ## Mandatory tech
 

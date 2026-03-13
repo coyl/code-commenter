@@ -14,11 +14,14 @@ import (
 	highlightadapter "code-commenter/api/internal/adapters/highlight"
 	jobstoreadapter "code-commenter/api/internal/adapters/jobstore"
 	storeadapter "code-commenter/api/internal/adapters/store"
+	"code-commenter/api/internal/auth"
 	"code-commenter/api/internal/config"
 	domainalignment "code-commenter/api/internal/domain/alignment"
 	"code-commenter/api/internal/gemini"
 	"code-commenter/api/internal/handlers"
 	"code-commenter/api/internal/jobstore"
+	dsindex "code-commenter/api/internal/jobstore/datastore"
+	"code-commenter/api/internal/jobstore/firestore"
 	"code-commenter/api/internal/ports"
 	"code-commenter/api/internal/store"
 )
@@ -61,6 +64,50 @@ func main() {
 	if jobStore != nil {
 		jobRepository = &jobstoreadapter.Adapter{Store: jobStore}
 	}
+	var jobIndex ports.JobIndex
+	var dailyQuota ports.DailyQuota
+	switch cfg.JobIndexBackend() {
+	case "datastore":
+		dsIdx, err := dsindex.NewIndex(ctx, cfg.DatastoreProjectID, cfg.DatastoreDatabaseID)
+		if err != nil {
+			log.Fatal().Err(err).Msg("datastore job index")
+		}
+		if dsIdx != nil {
+			defer func() { _ = dsIdx.Close() }()
+			jobIndex = dsIdx
+			jobRepository = &jobstoreadapter.CompositeRepository{Repo: jobRepository, Index: jobIndex}
+		}
+		if cfg.AuthEnabled() {
+			dsQuota, err := dsindex.NewQuota(ctx, cfg.DatastoreProjectID, cfg.DatastoreDatabaseID)
+			if err != nil {
+				log.Fatal().Err(err).Msg("datastore quota")
+			}
+			if dsQuota != nil {
+				defer func() { _ = dsQuota.Close() }()
+				dailyQuota = dsQuota
+			}
+		}
+	case "firestore":
+		fsIndex, err := firestore.NewIndex(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
+		if err != nil {
+			log.Fatal().Err(err).Msg("firestore job index")
+		}
+		if fsIndex != nil {
+			defer func() { _ = fsIndex.Close() }()
+			jobIndex = fsIndex
+			jobRepository = &jobstoreadapter.CompositeRepository{Repo: jobRepository, Index: jobIndex}
+		}
+		if cfg.AuthEnabled() {
+			fsQuota, err := firestore.NewQuota(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
+			if err != nil {
+				log.Fatal().Err(err).Msg("firestore quota")
+			}
+			if fsQuota != nil {
+				defer func() { _ = fsQuota.Close() }()
+				dailyQuota = fsQuota
+			}
+		}
+	}
 
 	orchestrator := &appalignment.StreamOrchestrator{
 		Generation:     genAdapter,
@@ -73,7 +120,21 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /task/stream", handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey))
+	allowedOrigins := parseAllowedOrigins(cfg.AllowedOrigins)
+
+	var streamHandler http.Handler = http.HandlerFunc(handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey, dailyQuota))
+	if cfg.AuthEnabled() {
+		oauthCfg := auth.NewOAuthConfig(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.AuthCallbackURL)
+		mux.HandleFunc("GET /auth/start", handlers.HandleAuthStart(oauthCfg, cfg.SessionSecret, allowedOrigins))
+		mux.HandleFunc("GET /auth/callback", handlers.HandleAuthCallback(oauthCfg, cfg.SessionSecret, allowedOrigins))
+		mux.HandleFunc("GET /auth/logout", handlers.HandleLogout(cfg.SessionSecret, allowedOrigins))
+		mux.Handle("GET /me", auth.WithSession(cfg.SessionSecret, handlers.HandleMe(dailyQuota)))
+		streamHandler = auth.WithSession(cfg.SessionSecret, auth.RequireAuth(handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey, dailyQuota)))
+		if jobIndex != nil {
+			mux.Handle("GET /jobs/mine", auth.WithSession(cfg.SessionSecret, auth.RequireAuth(handlers.HandleListMyJobs(jobIndex, 50))))
+		}
+	}
+	mux.Handle("GET /task/stream", streamHandler)
 	if jobRepository.IsEnabled() {
 		mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobRepository))
 	}
@@ -96,6 +157,9 @@ func corsMiddleware(next http.Handler, origins string) http.Handler {
 		allowOrigin := matchAllowedOrigin(requestOrigin, rawOrigin, allowedOrigins)
 		if allowOrigin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+			if allowOrigin != "*" {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
 		}
 		appendVary(w.Header(), "Origin")
 		if r.Method == http.MethodOptions {

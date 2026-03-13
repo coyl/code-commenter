@@ -1,0 +1,11 @@
+# Composite index for Datastore job index (GET /jobs/mine).
+# Deploy with: gcloud datastore indexes create index.yaml --project=YOUR_PROJECT_ID
+# For a named database: add --database=YOUR_DATABASE_ID (e.g. code-commenter).
+# Or run the first query and use the link from the error to create the index in the console.
+indexes:
+  - kind: Job
+    properties:
+      - name: ownerSub
+        direction: asc
+      - name: createdAt
+        direction: desc

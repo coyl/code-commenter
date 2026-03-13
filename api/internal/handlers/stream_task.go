@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 
 	wsadapter "code-commenter/api/internal/adapters/ws"
 	appalignment "code-commenter/api/internal/app/alignment"
+	"code-commenter/api/internal/auth"
+	"code-commenter/api/internal/ports"
 )
 
 // StreamTaskRequest is the first message from client: { "task", "language" } or { "code", "language" } for "Your code" flow.
@@ -18,7 +22,8 @@ type StreamTaskRequest struct {
 }
 
 // HandleStreamTask runs the stream orchestrator and forwards typed events over websocket.
-func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey string) http.HandlerFunc {
+// When quota is non-nil and auth is enabled, atomically consumes a slot (TryConsumeSlot) before run and releases it (ReleaseSlot) on failure.
+func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey string, quota ports.DailyQuota) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if apiKey == "" {
 			http.Error(w, "API not configured", http.StatusServiceUnavailable)
@@ -36,14 +41,35 @@ func HandleStreamTask(orchestrator *appalignment.StreamOrchestrator, apiKey stri
 			_ = ws.WriteJSON(map[string]string{"type": "error", "error": err.Error()})
 			return
 		}
-		// Defaults for task/language are applied in orchestrator.Run
+		owner := auth.UserFromContext(r.Context())
+
+		if owner != nil && quota != nil {
+			ok, err := quota.TryConsumeSlot(r.Context(), owner.Sub)
+			if err != nil {
+				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "quota check failed"})
+				return
+			}
+			if !ok {
+				_ = ws.WriteJSON(map[string]string{"type": "error", "error": "Daily limit reached. You can generate up to 3 tasks per day."})
+				return
+			}
+		}
 
 		sink := wsadapter.Sink{Conn: ws}
-		_, _ = orchestrator.Run(r.Context(), appalignment.StreamRequest{
+		_, runErr := orchestrator.Run(r.Context(), appalignment.StreamRequest{
 			Task:              req.Task,
 			Language:          req.Language,
 			Code:              req.Code,
 			NarrationLanguage: req.NarrationLanguage,
+			Owner:             owner,
 		}, sink)
+
+		if runErr != nil && owner != nil && quota != nil {
+			// Use a short-lived background context so ReleaseSlot can complete even when
+			// r.Context() is already canceled (e.g. client disconnect, timeout).
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = quota.ReleaseSlot(releaseCtx, owner.Sub)
+		}
 	}
 }

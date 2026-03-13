@@ -6,6 +6,9 @@ import GenerationProgress from "@/components/GenerationProgress";
 import { usePCMPlayer } from "@/lib/audio";
 import type { Segment } from "@/domain/stream";
 import { useStreamTask } from "@/features/stream/useStreamTask";
+import { useAuth } from "@/features/auth/useAuth";
+import JobsSidebar from "@/components/JobsSidebar";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 type InputTab = "task" | "code";
 
@@ -37,11 +40,14 @@ export default function Home() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [showRawDebug, setShowRawDebug] = useState(false);
   const [rawJsonOutput, setRawJsonOutput] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const styleElRef = useRef<HTMLStyleElement | null>(null);
   const streamEndedRef = useRef(false);
   const newSegmentIndexRef = useRef<number | null>(null);
   const codePlayerRef = useRef<CodePlayerRef | null>(null);
   const { playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs } = usePCMPlayer();
+  const { user, loading: authLoading, authConfigured, signInUrl, signOutUrl, quotaRemaining, refetch: refetchAuth } = useAuth();
 
   const streamCallbacks = useMemo(
     () => ({
@@ -107,7 +113,21 @@ export default function Home() {
     if (segments.length > idx) codePlayerRef.current?.playSegment(idx);
   }, [segments]);
 
+  // After successful generation, session event fires before backend finishes writing to job index; refetch jobs list and quota after a delay.
+  useEffect(() => {
+    if (!sessionId || !authConfigured) return;
+    const t = setTimeout(() => {
+      setJobsRefreshKey((k) => k + 1);
+      refetchAuth();
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [sessionId, authConfigured, refetchAuth]);
+
+  const quotaExhausted = authConfigured && user && quotaRemaining !== undefined && quotaRemaining <= 0;
+
   const submitTaskStream = () => {
+    if (authConfigured && !user) return;
+    if (quotaExhausted) return;
     if (inputTab === "task" && !task.trim()) return;
     if (inputTab === "code" && !userCode.trim()) return;
     clearAllErrors();
@@ -121,11 +141,50 @@ export default function Home() {
 
   const displayError = error;
 
+  const showAuthOverlay = !authLoading && authConfigured && !user && !!signInUrl;
+
   return (
-    <main className="min-h-screen p-6 max-w-5xl mx-auto">
-      <header className="mb-8">
-        <h1 className="text-2xl font-bold text-cyan-400">Code Commenter Live Agent</h1>
-        <p className="text-zinc-400 text-sm mt-1">Describe a task → get code with just-in-time streaming and voiceover.</p>
+    <div className="flex min-h-screen">
+      {authConfigured && (
+        <JobsSidebar
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen((o) => !o)}
+          signedIn={!!user}
+          refreshTrigger={sessionId ? `${sessionId}-${jobsRefreshKey}` : undefined}
+        />
+      )}
+      <main className="flex-1 min-w-0 p-6 max-w-5xl mx-auto relative">
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-cyan-400">Anee Explainee</h1>
+          <p className="text-zinc-400 text-sm mt-1">Describe a task → get code with just-in-time streaming and voiceover.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {authLoading ? (
+            <span className="text-zinc-500 text-sm">Checking sign-in…</span>
+          ) : user ? (
+            <>
+              <span className="text-zinc-400 text-sm truncate max-w-[200px]" title={user.email}>
+                {user.email}
+              </span>
+              {signOutUrl && (
+                <a
+                  href={signOutUrl}
+                  className="text-sm text-zinc-400 hover:text-zinc-200 underline"
+                >
+                  Sign out
+                </a>
+              )}
+            </>
+          ) : signInUrl ? (
+            <a
+              href={signInUrl}
+              className="px-3 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium"
+            >
+              Sign in with Google
+            </a>
+          ) : null}
+        </div>
       </header>
 
       <section className="mb-6 p-4 rounded-lg bg-zinc-900/80 border border-zinc-700">
@@ -212,12 +271,21 @@ export default function Home() {
           </select>
           <button
             onClick={submitTaskStream}
-            disabled={loading}
-            className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white font-medium text-sm"
+            disabled={loading || (authConfigured && !user) || !!quotaExhausted}
+            className={`px-4 py-2 rounded-lg text-white font-medium text-sm ${
+              quotaExhausted
+                ? "bg-zinc-600 cursor-not-allowed"
+                : "bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50"
+            }`}
           >
             {loading ? "Generating…" : "Generate"}
           </button>
         </div>
+        {quotaExhausted && (
+          <p className="mt-2 text-amber-400 text-sm">
+            Daily limit reached — you can generate up to 3 times per 24 hours.
+          </p>
+        )}
       </section>
 
       {loading && <GenerationProgress stage={stage} />}
@@ -267,6 +335,22 @@ export default function Home() {
           )}
         </>
       )}
-    </main>
+
+      {showAuthOverlay && signInUrl && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center backdrop-blur-md bg-black/50 rounded-lg"
+          aria-modal
+          aria-label="Sign in required"
+        >
+          <div className="bg-zinc-900/95 border border-zinc-700 rounded-xl p-8 max-w-sm w-full mx-4 shadow-xl text-center">
+            <p className="text-zinc-300 text-sm leading-relaxed mb-6">
+              Sign in with Google to generate jobs. Generation is only available when you are signed in.
+            </p>
+            <GoogleSignInButton href={signInUrl} />
+          </div>
+        </div>
+      )}
+      </main>
+    </div>
   );
 }

@@ -45,7 +45,7 @@ export default function ExamplePage() {
         >
           <iframe
             src={`/embed/${encodeURIComponent(id)}`}
-            title="Code Commenter player"
+            title="Anee Explainee player"
             className="w-full h-full border-0 block overflow-hidden"
             style={{ overflow: "hidden" }}
             allow="autoplay"
