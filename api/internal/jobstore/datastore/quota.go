@@ -59,24 +59,6 @@ func (q *Quota) GetTodayCount(ctx context.Context, ownerSub string) (int, error)
 	return ent.Count, nil
 }
 
-// IncrementToday increments today's generation count for the owner.
-func (q *Quota) IncrementToday(ctx context.Context, ownerSub string) error {
-	if q == nil || q.client == nil || ownerSub == "" {
-		return nil
-	}
-	key := datastore.NameKey(kindDailyQuota, ownerSub+"_"+todayKey(), nil)
-	_, err := q.client.RunInTransaction(ctx, func(tx *datastore.Transaction) error {
-		var ent quotaEntity
-		if err := tx.Get(key, &ent); err != nil && err != datastore.ErrNoSuchEntity {
-			return err
-		}
-		ent.Count++
-		_, err := tx.Put(key, &ent)
-		return err
-	})
-	return err
-}
-
 // TryConsumeSlot atomically consumes one slot if under DailyGenerationLimit. Returns true if consumed, false if at limit.
 func (q *Quota) TryConsumeSlot(ctx context.Context, ownerSub string) (bool, error) {
 	if q == nil || q.client == nil || ownerSub == "" {

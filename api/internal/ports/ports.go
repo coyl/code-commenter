@@ -87,7 +87,6 @@ type JobIndex interface {
 // DailyQuota limits generations per user per day. When auth is enabled, stream handler uses TryConsumeSlot before run and ReleaseSlot on failure.
 type DailyQuota interface {
 	GetTodayCount(ctx context.Context, ownerSub string) (int, error)
-	IncrementToday(ctx context.Context, ownerSub string) error
 	// TryConsumeSlot atomically consumes one slot if under limit. Returns true if consumed, false if at limit. Use ReleaseSlot if generation later fails.
 	TryConsumeSlot(ctx context.Context, ownerSub string) (ok bool, err error)
 	// ReleaseSlot returns one slot (e.g. when generation failed after TryConsumeSlot succeeded).

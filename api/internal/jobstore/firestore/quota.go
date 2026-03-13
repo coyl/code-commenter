@@ -62,31 +62,6 @@ func (q *Quota) GetTodayCount(ctx context.Context, ownerSub string) (int, error)
 	return data.Count, nil
 }
 
-// IncrementToday increments today's generation count for the owner.
-func (q *Quota) IncrementToday(ctx context.Context, ownerSub string) error {
-	if q == nil || q.client == nil || ownerSub == "" {
-		return nil
-	}
-	docRef := q.client.Collection(collectionDailyQuota).Doc(ownerSub + "_" + todayKey())
-	return q.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		doc, err := tx.Get(docRef)
-		count := 0
-		if err != nil && status.Code(err) != codes.NotFound {
-			return err
-		}
-		if err == nil {
-			var data struct {
-				Count int `firestore:"count"`
-			}
-			if doc.DataTo(&data) == nil {
-				count = data.Count
-			}
-		}
-		count++
-		return tx.Set(docRef, map[string]int{"count": count})
-	})
-}
-
 // TryConsumeSlot atomically consumes one slot if under DailyGenerationLimit. Returns true if consumed, false if at limit.
 func (q *Quota) TryConsumeSlot(ctx context.Context, ownerSub string) (bool, error) {
 	if q == nil || q.client == nil || ownerSub == "" {
