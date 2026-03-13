@@ -125,7 +125,7 @@ func main() {
 	var streamHandler http.Handler = http.HandlerFunc(handlers.HandleStreamTask(orchestrator, cfg.GeminiAPIKey, dailyQuota))
 	if cfg.AuthEnabled() {
 		oauthCfg := auth.NewOAuthConfig(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.AuthCallbackURL)
-		mux.HandleFunc("GET /auth/start", handlers.HandleAuthStart(oauthCfg, allowedOrigins))
+		mux.HandleFunc("GET /auth/start", handlers.HandleAuthStart(oauthCfg, cfg.SessionSecret, allowedOrigins))
 		mux.HandleFunc("GET /auth/callback", handlers.HandleAuthCallback(oauthCfg, cfg.SessionSecret, allowedOrigins))
 		mux.HandleFunc("GET /auth/logout", handlers.HandleLogout(cfg.SessionSecret, allowedOrigins))
 		mux.Handle("GET /me", auth.WithSession(cfg.SessionSecret, handlers.HandleMe(dailyQuota)))

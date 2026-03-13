@@ -11,7 +11,8 @@ import (
 )
 
 // HandleAuthStart redirects to Google OAuth. Query param "redirect" is the URL to send the user to after login.
-func HandleAuthStart(cfg *auth.OAuthConfig, allowedOrigins []string) http.HandlerFunc {
+// Sets a signed state cookie (CSRF token) and includes it in the OAuth state so the callback is bound to this browser.
+func HandleAuthStart(cfg *auth.OAuthConfig, sessionSecret string, allowedOrigins []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClientID == "" || cfg.CallbackURL == "" {
 			http.Error(w, "auth not configured", http.StatusServiceUnavailable)
@@ -19,7 +20,14 @@ func HandleAuthStart(cfg *auth.OAuthConfig, allowedOrigins []string) http.Handle
 		}
 		redirect := r.URL.Query().Get("redirect")
 		redirect = auth.RedirectSafe(redirect, allowedOrigins, auth.DefaultRedirect(allowedOrigins))
-		state := auth.StateEncode(redirect)
+		csrfToken, err := auth.GenerateStateToken()
+		if err != nil {
+			log.Error().Err(err).Msg("auth start: generate state token")
+			http.Error(w, "auth error", http.StatusInternalServerError)
+			return
+		}
+		auth.SetStateCookie(w, r, sessionSecret, csrfToken)
+		state := auth.StateEncode(csrfToken, redirect)
 		url := cfg.AuthCodeURL(state)
 		log.Debug().Str("redirect", redirect).Msg("auth start")
 		http.Redirect(w, r, url, http.StatusFound)
@@ -27,6 +35,7 @@ func HandleAuthStart(cfg *auth.OAuthConfig, allowedOrigins []string) http.Handle
 }
 
 // HandleAuthCallback exchanges the code, sets the session cookie, and redirects to the URL from state.
+// Verifies the state parameter contains a CSRF token that matches the state cookie (RFC 6749 §10.12).
 func HandleAuthCallback(cfg *auth.OAuthConfig, sessionSecret string, allowedOrigins []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if sessionSecret == "" || cfg.ClientID == "" {
@@ -39,12 +48,15 @@ func HandleAuthCallback(cfg *auth.OAuthConfig, sessionSecret string, allowedOrig
 			http.Error(w, "missing code", http.StatusBadRequest)
 			return
 		}
-		redirect, err := auth.StateDecode(state)
-		if err != nil {
-			redirect = auth.DefaultRedirect(allowedOrigins)
-		} else {
-			redirect = auth.RedirectSafe(redirect, allowedOrigins, auth.DefaultRedirect(allowedOrigins))
+		csrfToken, redirect, err := auth.StateDecode(state)
+		if err != nil || !auth.VerifyStateCookie(r, sessionSecret, csrfToken) {
+			auth.ClearStateCookie(w, r)
+			log.Warn().Err(err).Msg("auth callback: invalid or missing state (possible CSRF)")
+			http.Error(w, "invalid state", http.StatusBadRequest)
+			return
 		}
+		auth.ClearStateCookie(w, r)
+		redirect = auth.RedirectSafe(redirect, allowedOrigins, auth.DefaultRedirect(allowedOrigins))
 		user, err := cfg.ExchangeCode(r.Context(), code)
 		if err != nil {
 			log.Error().Err(err).Msg("auth callback exchange")

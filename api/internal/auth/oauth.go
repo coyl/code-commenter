@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -14,6 +17,9 @@ import (
 
 	"code-commenter/api/internal/ports"
 )
+
+const oauthStateCookieName = "codecommenter_oauth_state"
+const oauthStateMaxAge = 600 // 10 minutes
 
 // GoogleUserInfo from https://www.googleapis.com/oauth2/v2/userinfo
 type GoogleUserInfo struct {
@@ -97,18 +103,38 @@ func (c *OAuthConfig) userInfoFromToken(ctx context.Context, tok *oauth2.Token) 
 	}, nil
 }
 
-// StateEncode encodes the redirect URL for use as OAuth state (to avoid open redirect we only store path or allow origin).
-func StateEncode(redirectURL string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(redirectURL))
-}
+// stateSeparator separates CSRF token from redirect in encoded state. Must not appear in redirect URLs.
+const stateSeparator = "|"
 
-// StateDecode decodes the OAuth state back to redirect URL.
-func StateDecode(state string) (string, error) {
-	b, err := base64.RawURLEncoding.DecodeString(state)
-	if err != nil {
+// GenerateStateToken returns a cryptographically random token for OAuth state (CSRF binding).
+func GenerateStateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return string(b), nil
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// StateEncode encodes CSRF token and redirect URL for use as OAuth state (RFC 6749 §10.12).
+// The token binds the callback to the browser that started the flow.
+func StateEncode(csrfToken, redirectURL string) string {
+	payload := csrfToken + stateSeparator + redirectURL
+	return base64.RawURLEncoding.EncodeToString([]byte(payload))
+}
+
+// StateDecode decodes the OAuth state into CSRF token and redirect URL.
+// Returns token, redirect, and error. Caller must verify token matches the state cookie.
+func StateDecode(state string) (csrfToken, redirect string, err error) {
+	b, err := base64.RawURLEncoding.DecodeString(state)
+	if err != nil {
+		return "", "", err
+	}
+	s := string(b)
+	idx := strings.Index(s, stateSeparator)
+	if idx < 0 {
+		return "", "", fmt.Errorf("invalid state format")
+	}
+	return s[:idx], s[idx+len(stateSeparator):], nil
 }
 
 // RedirectSafe returns redirect if it is allowed by allowedOrigins, else defaultOrigin.
@@ -135,4 +161,76 @@ func DefaultRedirect(allowedOrigins []string) string {
 		}
 	}
 	return "/"
+}
+
+// SetStateCookie sets a signed cookie containing the CSRF token for the OAuth flow.
+// Same Secure/SameSite rules as session so the cookie is sent on the callback.
+func SetStateCookie(w http.ResponseWriter, r *http.Request, secret, token string) {
+	if secret == "" || token == "" {
+		return
+	}
+	sig := signState(secret, token)
+	value := token + "." + sig
+	secure := isSecureRequest(r)
+	cookie := &http.Cookie{
+		Name:     oauthStateCookieName,
+		Value:    value,
+		Path:     "/",
+		MaxAge:   oauthStateMaxAge,
+		HttpOnly: true,
+	}
+	if secure {
+		cookie.SameSite = http.SameSiteNoneMode
+		cookie.Secure = true
+	} else {
+		cookie.SameSite = http.SameSiteLaxMode
+		cookie.Secure = false
+	}
+	http.SetCookie(w, cookie)
+}
+
+// VerifyStateCookie returns true if the request has a valid state cookie whose token matches tokenFromState.
+func VerifyStateCookie(r *http.Request, secret, tokenFromState string) bool {
+	if secret == "" || tokenFromState == "" {
+		return false
+	}
+	c, err := r.Cookie(oauthStateCookieName)
+	if err != nil || c.Value == "" {
+		return false
+	}
+	parts := strings.SplitN(c.Value, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	token, sig := parts[0], parts[1]
+	if !hmac.Equal([]byte(signState(secret, token)), []byte(sig)) {
+		return false
+	}
+	return hmac.Equal([]byte(token), []byte(tokenFromState))
+}
+
+// ClearStateCookie removes the OAuth state cookie after use.
+func ClearStateCookie(w http.ResponseWriter, r *http.Request) {
+	secure := isSecureRequest(r)
+	cookie := &http.Cookie{
+		Name:     oauthStateCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	}
+	if secure {
+		cookie.SameSite = http.SameSiteNoneMode
+		cookie.Secure = true
+	} else {
+		cookie.SameSite = http.SameSiteLaxMode
+		cookie.Secure = false
+	}
+	http.SetCookie(w, cookie)
+}
+
+func signState(secret, payload string) string {
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(payload))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
