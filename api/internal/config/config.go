@@ -116,15 +116,6 @@ func Load() *Config {
 	}
 }
 
-// JobIndexProjectID returns the project ID to use for the job index.
-// When DatastoreProjectID is set, use it (Datastore backend); otherwise use FirestoreProjectID.
-func (c *Config) JobIndexProjectID() string {
-	if c.DatastoreProjectID != "" {
-		return c.DatastoreProjectID
-	}
-	return c.FirestoreProjectID
-}
-
 // JobIndexBackend returns "datastore", "firestore", or "" if no job index is configured.
 func (c *Config) JobIndexBackend() string {
 	if c.DatastoreProjectID != "" {
