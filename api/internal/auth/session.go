@@ -110,14 +110,6 @@ func signSession(secret, payload string) string {
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
-// RedirectURL returns the URL to redirect to after login (from query or default).
-func RedirectURL(r *http.Request, defaultPath string) string {
-	if s := strings.TrimSpace(r.URL.Query().Get("redirect")); s != "" && !strings.HasPrefix(s, "//") {
-		return s
-	}
-	return defaultPath
-}
-
 // RedirectTo writes a 302 to the given URL. SafeRedirect restricts to allowed origins.
 func RedirectTo(w http.ResponseWriter, r *http.Request, targetURL string, allowedOrigins []string) {
 	if targetURL == "" {
