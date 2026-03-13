@@ -149,9 +149,10 @@ func RedirectTo(w http.ResponseWriter, r *http.Request, targetURL string, allowe
 			}
 		}
 		if !ok {
-			targetURL = allowedOrigins[0]
-			if strings.HasSuffix(targetURL, "/") {
-				targetURL = strings.TrimSuffix(targetURL, "/")
+			if len(allowedOrigins) > 0 {
+				targetURL = strings.TrimSuffix(allowedOrigins[0], "/")
+			} else {
+				targetURL = "/"
 			}
 		}
 	}
