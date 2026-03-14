@@ -132,6 +132,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
           case "session":
             onStreamEnded(true);
             onSessionId(event.id || null);
+            onLoading(false);
             break;
           case "error":
             onError(event.error ?? "Stream error");
