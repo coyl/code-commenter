@@ -35,6 +35,8 @@ export function parseMessage(data: string): StreamEvent | null {
         return { type: "css", css: msg.css };
       case "session":
         return { type: "session", id: msg.id ?? "" };
+      case "story":
+        return { type: "story", storyHtml: typeof (msg as { storyHtml?: unknown }).storyHtml === "string" ? (msg as { storyHtml: string }).storyHtml : "" };
       case "error":
         return { type: "error", error: msg.error ?? "Stream error" };
       default:

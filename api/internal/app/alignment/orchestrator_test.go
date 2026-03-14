@@ -35,6 +35,9 @@ func (f fakeGeneration) GenerateWrappingNarrationForUserCode(context.Context, st
 func (f fakeGeneration) GenerateTitle(context.Context, string, string) (string, error) {
 	return "Test title", nil
 }
+func (f fakeGeneration) GenerateStory(context.Context, string, string, string, string, string) (string, error) {
+	return "<p>Intro</p>\n{{EMBED_PLAYER}}\n<p>Outro</p>", nil
+}
 
 type fakeAudio struct {
 	errFor map[string]error
@@ -75,15 +78,15 @@ func (f *fakeSessions) Get(string) *ports.SessionData {
 	return nil
 }
 
-type fakeJobs struct{}
+type fakeJobs struct{ enabled bool }
 
-func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
+func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
 	return nil
 }
 func (fakeJobs) GetJob(context.Context, string) (interface{}, error) {
 	return nil, errors.New("not implemented")
 }
-func (fakeJobs) IsEnabled() bool { return false }
+func (f fakeJobs) IsEnabled() bool { return f.enabled }
 
 type captureSink struct {
 	events []ports.StreamEvent
@@ -112,7 +115,7 @@ func TestOrchestratorEmitsCompatibleOrder(t *testing.T) {
 		Audio:    fakeAudio{errFor: map[string]error{}},
 		Renderer: fakeRenderer{},
 		Sessions: sessions,
-		Jobs:     fakeJobs{},
+		Jobs:     fakeJobs{enabled: true},
 		Aligner:  domain.Service{},
 	}
 
@@ -128,7 +131,7 @@ func TestOrchestratorEmitsCompatibleOrder(t *testing.T) {
 		t.Fatalf("expected at least 7 events, got %d", len(sink.events))
 	}
 	// Event order must include these types in order (stage events may appear in between).
-	wantOrder := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "session"}
+	wantOrder := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "session", "story"}
 	idx := 0
 	for _, e := range sink.events {
 		if idx < len(wantOrder) && e.Type == wantOrder[idx] {

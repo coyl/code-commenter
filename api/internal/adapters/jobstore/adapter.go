@@ -12,7 +12,7 @@ type Adapter struct {
 	Store *core.Client
 }
 
-func (a *Adapter) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail string, segments []ports.JobSegment, segmentAudio [][]byte) error {
+func (a *Adapter) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, storyHTML string, segments []ports.JobSegment, segmentAudio [][]byte) error {
 	if a.Store == nil {
 		return nil
 	}
@@ -24,7 +24,7 @@ func (a *Adapter) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCod
 			Narration: seg.Narration,
 		})
 	}
-	return a.Store.UploadJob(ctx, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, stored, segmentAudio)
+	return a.Store.UploadJob(ctx, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, storyHTML, stored, segmentAudio)
 }
 
 func (a *Adapter) GetJob(ctx context.Context, jobID string) (interface{}, error) {
@@ -41,7 +41,7 @@ func (a *Adapter) IsEnabled() bool {
 // NoopAdapter allows running without S3 configured.
 type NoopAdapter struct{}
 
-func (NoopAdapter) UploadJob(context.Context, string, string, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
+func (NoopAdapter) UploadJob(context.Context, string, string, string, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
 	return nil
 }
 

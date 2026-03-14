@@ -35,6 +35,9 @@ type Config struct {
 	// Use this when the database is in Datastore mode (Cloud Firestore API not available).
 	DatastoreProjectID  string
 	DatastoreDatabaseID string // Named database (e.g. code-commenter); empty = "(default)"
+
+	// DisableAuth when true (DISABLE_AUTH=yes): no auth required, no /jobs/mine or auth routes. Default false.
+	DisableAuth bool
 }
 
 // Load reads config from environment.
@@ -91,6 +94,11 @@ func Load() *Config {
 	firestoreDatabaseID := strings.TrimSpace(os.Getenv("FIRESTORE_DATABASE_ID"))
 	datastoreProjectID := os.Getenv("DATASTORE_PROJECT_ID")
 	datastoreDatabaseID := strings.TrimSpace(os.Getenv("DATASTORE_DATABASE_ID"))
+	disableAuth := false
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("DISABLE_AUTH"))) {
+	case "yes", "1", "on", "true":
+		disableAuth = true
+	}
 	return &Config{
 		Port:           port,
 		GeminiAPIKey:   apiKey,
@@ -113,6 +121,7 @@ func Load() *Config {
 		FirestoreDatabaseID: firestoreDatabaseID,
 		DatastoreProjectID:   datastoreProjectID,
 		DatastoreDatabaseID: datastoreDatabaseID,
+		DisableAuth:         disableAuth,
 	}
 }
 
@@ -127,7 +136,10 @@ func (c *Config) JobIndexBackend() string {
 	return ""
 }
 
-// AuthEnabled returns true when Google OAuth and session are configured.
+// AuthEnabled returns true when Google OAuth and session are configured and DISABLE_AUTH is not set.
 func (c *Config) AuthEnabled() bool {
+	if c.DisableAuth {
+		return false
+	}
 	return c.SessionSecret != "" && c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.AuthCallbackURL != ""
 }

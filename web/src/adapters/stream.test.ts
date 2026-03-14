@@ -37,6 +37,12 @@ describe("stream adapter parseMessage", () => {
     expect(event).toMatchObject({ type: "code_done", code: "full", rawJson: "[{}]" });
   });
 
+  it("parses story event", () => {
+    const raw = JSON.stringify({ type: "story", storyHtml: "<p>Intro</p>{{EMBED_PLAYER}}<p>Outro</p>" });
+    const event = parseMessage(raw);
+    expect(event).toEqual({ type: "story", storyHtml: "<p>Intro</p>{{EMBED_PLAYER}}<p>Outro</p>" });
+  });
+
   it("returns null for invalid JSON", () => {
     expect(parseMessage("not json")).toBeNull();
   });

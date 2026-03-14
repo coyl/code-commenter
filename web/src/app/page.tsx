@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
 import CodePlayer, { type CodePlayerRef } from "@/components/CodePlayer";
 import GenerationProgress from "@/components/GenerationProgress";
 import { usePCMPlayer } from "@/lib/audio";
@@ -40,6 +41,7 @@ export default function Home() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [showRawDebug, setShowRawDebug] = useState(false);
   const [rawJsonOutput, setRawJsonOutput] = useState("");
+  const [storyHtml, setStoryHtml] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const styleElRef = useRef<HTMLStyleElement | null>(null);
@@ -57,6 +59,7 @@ export default function Home() {
       onSessionId: setSessionId,
       onNarration: setNarration,
       onRawJson: setRawJsonOutput,
+      onStoryHtml: setStoryHtml,
       onError: setError,
       onLoading: setLoading,
       onStage: setStage,
@@ -132,6 +135,7 @@ export default function Home() {
     if (inputTab === "code" && !userCode.trim()) return;
     clearAllErrors();
     setDisplayedCode("");
+    setStoryHtml("");
     if (inputTab === "code") {
       runStream("", "", narrationLanguage, userCode.trim());
     } else {
@@ -308,6 +312,21 @@ export default function Home() {
             streamEndedRef={streamEndedRef}
             audio={{ playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs }}
           />
+          {sessionId && storyHtml && (
+            <div className="mt-4 flex items-center gap-3">
+              <Link
+                href={`/story/${sessionId}`}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-600 text-zinc-200 hover:text-white hover:border-zinc-400 text-sm font-medium transition-colors"
+              >
+                View story
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </Link>
+            </div>
+          )}
           {(code || segments.length > 0) && (
             <div className="mt-4 border border-zinc-700 rounded-lg overflow-hidden bg-zinc-900/50">
               <button

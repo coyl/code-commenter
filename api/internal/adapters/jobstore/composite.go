@@ -13,8 +13,8 @@ type CompositeRepository struct {
 }
 
 // UploadJob delegates to Repo and then adds metadata to Index when configured.
-func (c *CompositeRepository) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail string, segments []ports.JobSegment, segmentAudio [][]byte) error {
-	if err := c.Repo.UploadJob(ctx, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, segments, segmentAudio); err != nil {
+func (c *CompositeRepository) UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, storyHTML string, segments []ports.JobSegment, segmentAudio [][]byte) error {
+	if err := c.Repo.UploadJob(ctx, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, storyHTML, segments, segmentAudio); err != nil {
 		return err
 	}
 	if c.Index != nil {

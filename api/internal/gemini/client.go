@@ -299,6 +299,50 @@ No code snippets, no markdown. Output only the narration text, nothing else.`, s
 	return strings.TrimSpace(extractText(result)), nil
 }
 
+// GenerateStory returns an HTML article body describing the problem and its solution.
+// The returned HTML contains the marker {{EMBED_PLAYER}} exactly once, positioned mid-article so
+// the frontend can inject an embed iframe there.
+func (c *Client) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations, fullCodePlain string) (storyHTML string, err error) {
+	start := time.Now()
+	defer func() {
+		ev := log.Info().Str("op", "GenerateStory").Dur("dur", time.Since(start))
+		if err != nil {
+			ev = log.Error().Err(err).Str("op", "GenerateStory").Dur("dur", time.Since(start))
+		}
+		ev.Msg("llm request")
+	}()
+
+	prompt := fmt.Sprintf(`You are a technical writer. Write a short, engaging article about the coding problem below and how it was solved. The article will be published on a developer blog and will have an interactive code player embedded in the middle.
+
+Title: %s
+Language: %s
+Problem/Spec: %s
+How it was solved (segment narrations):
+%s
+
+Rules:
+- Write ONLY the HTML body content — no <html>, <head>, or <body> tags, no CSS, no <script>.
+- Use only these tags: <h1>, <h2>, <p>, <ul>, <li>, <strong>, <em>, <code>.
+- Structure: a short intro (1-2 paragraphs) that sets up the problem, then the exact text {{EMBED_PLAYER}} on its own line (this is where the interactive player will be inserted), then a conclusion (1-2 paragraphs) that summarises what was built and what to take away.
+- Keep it concise: roughly 200-350 words total.
+- Do NOT include the actual source code in the article body; the player shows it.
+- Output only the HTML, no markdown code fences, no explanation.`, title, language, spec, segmentNarrations)
+
+	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
+		{Parts: []*genai.Part{{Text: prompt}}},
+	}, nil)
+	if err != nil {
+		return "", err
+	}
+	raw := strings.TrimSpace(extractText(result))
+	raw = cleanCodeBlock(raw)
+	// Ensure the marker is present; append a fallback section if the LLM omitted it.
+	if !strings.Contains(raw, "{{EMBED_PLAYER}}") {
+		raw = raw + "\n<p>{{EMBED_PLAYER}}</p>"
+	}
+	return raw, nil
+}
+
 // GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code).
 func (c *Client) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
 	if strings.TrimSpace(prompt) == "" {
