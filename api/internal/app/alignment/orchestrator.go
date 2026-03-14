@@ -326,6 +326,13 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		Narration: "",
 	})
 
+	// Emit session (permalink) immediately so the client can show it before any long persistence work.
+	// If we waited until after title/story/upload, WebSocket timeouts or client disconnect would
+	// cause Emit to fail and we could return before UploadJob, silently losing the job.
+	if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
+		return "", err
+	}
+
 	if o.Jobs != nil && o.Jobs.IsEnabled() && jobID != "" {
 		jobPrompt := req.Task
 		if userCodeMode {
@@ -351,15 +358,12 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			log.Error().Err(storyErr).Str("job", jobID).Msg("story generation failed")
 			storyHTML = ""
 		} else if storyHTML != "" {
+			// Best-effort: if WebSocket is already closed, log and continue so we always reach UploadJob.
 			if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "story", StoryHTML: storyHTML})); err != nil {
-				return "", err
+				log.Warn().Err(err).Str("job", jobID).Msg("story emit failed; continuing to upload job")
+			} else {
+				log.Info().Str("phase", "story").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 			}
-			log.Info().Str("phase", "story").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
-		}
-
-		// Emit session after story so the client receives story before closing the WebSocket.
-		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
-			return "", err
 		}
 
 		storedSegments := make([]ports.JobSegment, 0, len(aligned)+1)
@@ -402,11 +406,6 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			} else {
 				ev.Msg("S3 upload failed")
 			}
-		}
-	} else {
-		// No job storage: emit session so the client gets the permalink and can close the stream.
-		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
-			return "", err
 		}
 	}
 
