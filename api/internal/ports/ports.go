@@ -43,6 +43,9 @@ type GenerationPort interface {
 	// GenerateWrappingNarrationForUserCode returns a short closing voiceover for user-pasted code (segmentNarrationsSummary is concatenated segment narrations).
 	GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error)
 	GenerateTitle(ctx context.Context, spec, prompt string) (string, error)
+	// GenerateStory returns an HTML article body (no html/head/body tags) describing the problem and solution.
+	// The text includes the marker {{EMBED_PLAYER}} exactly once, positioned in the middle so an embed iframe can be injected there.
+	GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error)
 }
 
 // AudioPort owns narration -> audio chunk generation.
@@ -66,7 +69,7 @@ type SessionRepository interface {
 
 // JobRepository archives generated jobs and loads them by id.
 type JobRepository interface {
-	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail string, segments []JobSegment, segmentAudio [][]byte) error
+	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, storyHTML string, segments []JobSegment, segmentAudio [][]byte) error
 	GetJob(ctx context.Context, jobID string) (interface{}, error)
 	IsEnabled() bool
 }
@@ -111,6 +114,7 @@ type StreamEvent struct {
 	CodePlain string
 	Narration string
 	RawJSON   string
+	StoryHTML string
 	Index     int
 	Error     string
 	AudioData string

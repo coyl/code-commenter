@@ -70,9 +70,8 @@ func main() {
 	case "datastore":
 		dsIdx, err := dsindex.NewIndex(ctx, cfg.DatastoreProjectID, cfg.DatastoreDatabaseID)
 		if err != nil {
-			log.Fatal().Err(err).Msg("datastore job index")
-		}
-		if dsIdx != nil {
+			log.Warn().Err(err).Msg("datastore job index unavailable; job listing disabled")
+		} else if dsIdx != nil {
 			defer func() { _ = dsIdx.Close() }()
 			jobIndex = dsIdx
 			jobRepository = &jobstoreadapter.CompositeRepository{Repo: jobRepository, Index: jobIndex}
@@ -80,9 +79,8 @@ func main() {
 		if cfg.AuthEnabled() {
 			dsQuota, err := dsindex.NewQuota(ctx, cfg.DatastoreProjectID, cfg.DatastoreDatabaseID)
 			if err != nil {
-				log.Fatal().Err(err).Msg("datastore quota")
-			}
-			if dsQuota != nil {
+				log.Warn().Err(err).Msg("datastore quota unavailable; auth disabled")
+			} else if dsQuota != nil {
 				defer func() { _ = dsQuota.Close() }()
 				dailyQuota = dsQuota
 			}
@@ -90,9 +88,8 @@ func main() {
 	case "firestore":
 		fsIndex, err := firestore.NewIndex(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
 		if err != nil {
-			log.Fatal().Err(err).Msg("firestore job index")
-		}
-		if fsIndex != nil {
+			log.Warn().Err(err).Msg("firestore job index unavailable; job listing disabled")
+		} else if fsIndex != nil {
 			defer func() { _ = fsIndex.Close() }()
 			jobIndex = fsIndex
 			jobRepository = &jobstoreadapter.CompositeRepository{Repo: jobRepository, Index: jobIndex}
@@ -100,9 +97,8 @@ func main() {
 		if cfg.AuthEnabled() {
 			fsQuota, err := firestore.NewQuota(ctx, cfg.FirestoreProjectID, cfg.FirestoreDatabaseID)
 			if err != nil {
-				log.Fatal().Err(err).Msg("firestore quota")
-			}
-			if fsQuota != nil {
+				log.Warn().Err(err).Msg("firestore quota unavailable; auth disabled")
+			} else if fsQuota != nil {
 				defer func() { _ = fsQuota.Close() }()
 				dailyQuota = fsQuota
 			}

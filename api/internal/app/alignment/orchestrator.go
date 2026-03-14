@@ -326,8 +326,9 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		Narration: "",
 	})
 
-	// Emit session (permalink) immediately so the client can show it before any long S3 upload.
-	// On Cloud Run the WebSocket can be closed by timeouts/proxy if we wait until after upload.
+	// Emit session (permalink) immediately so the client can show it before any long persistence work.
+	// If we waited until after title/story/upload, WebSocket timeouts or client disconnect would
+	// cause Emit to fail and we could return before UploadJob, silently losing the job.
 	if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
 		return "", err
 	}
@@ -337,17 +338,34 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		if userCodeMode {
 			jobPrompt = "User-provided code"
 		}
-		uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), s3UploadTimeout)
-		defer cancelUpload()
+		// Keep persistence work alive even if the stream request context is canceled
+		// (e.g. websocket closes), but reserve the s3UploadTimeout budget for UploadJob only.
+		persistCtx := context.WithoutCancel(ctx)
 		titlePrompt := jobPrompt
 		if userCodeMode && len(segments) > 0 {
 			titlePrompt = segmentNarrationsSummary(segments, 800)
 		}
-		title, _ := o.Generation.GenerateTitle(uploadCtx, spec, titlePrompt)
+		title, _ := o.Generation.GenerateTitle(persistCtx, spec, titlePrompt)
 		if title == "" {
 			title = jobPrompt
 			title = truncateRunesWithEllipsis(title, 60)
 		}
+
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating story"}))
+		storyNarrations := segmentNarrationsSummary(segments, 3000)
+		storyHTML, storyErr := o.Generation.GenerateStory(persistCtx, title, spec, req.Language, storyNarrations)
+		if storyErr != nil {
+			log.Error().Err(storyErr).Str("job", jobID).Msg("story generation failed")
+			storyHTML = ""
+		} else if storyHTML != "" {
+			// Best-effort: if WebSocket is already closed, log and continue so we always reach UploadJob.
+			if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "story", StoryHTML: storyHTML})); err != nil {
+				log.Warn().Err(err).Str("job", jobID).Msg("story emit failed; continuing to upload job")
+			} else {
+				log.Info().Str("phase", "story").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
+			}
+		}
+
 		storedSegments := make([]ports.JobSegment, 0, len(aligned)+1)
 		segmentAudio := make([][]byte, 0, len(aligned)+1)
 		for _, item := range aligned {
@@ -378,7 +396,10 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		if req.Owner != nil {
 			ownerSub, ownerEmail = req.Owner.Sub, req.Owner.Email
 		}
-		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, ownerSub, ownerEmail, storedSegments, segmentAudio); upErr != nil {
+		uploadCtx, cancelUpload := context.WithTimeout(persistCtx, s3UploadTimeout)
+		upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, ownerSub, ownerEmail, storyHTML, storedSegments, segmentAudio)
+		cancelUpload()
+		if upErr != nil {
 			ev := log.Error().Err(upErr).Str("job", jobID).Dur("timeout", s3UploadTimeout)
 			if errors.Is(upErr, context.DeadlineExceeded) {
 				ev.Msg("S3 upload timed out")

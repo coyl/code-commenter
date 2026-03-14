@@ -11,6 +11,7 @@ describe("isStreamEvent", () => {
     expect(isStreamEvent({ type: "code_done", code: "", codePlain: "" })).toBe(true);
     expect(isStreamEvent({ type: "stage", stage: "Generating CSS" })).toBe(true);
     expect(isStreamEvent({ type: "session", id: "s1" })).toBe(true);
+    expect(isStreamEvent({ type: "story", storyHtml: "<p>hello</p>" })).toBe(true);
     expect(isStreamEvent({ type: "error", error: "msg" })).toBe(true);
   });
 

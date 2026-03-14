@@ -11,6 +11,7 @@ export type StreamTaskCallbacks = {
   onSessionId: (id: string | null) => void;
   onNarration: (narration: string) => void;
   onRawJson: (raw: string) => void;
+  onStoryHtml: (html: string) => void;
   onError: (err: string | null) => void;
   onLoading: (loading: boolean) => void;
   onStage: (stage: string) => void;
@@ -36,6 +37,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
         onSessionId,
         onNarration,
         onRawJson,
+        onStoryHtml,
         onError,
         onLoading,
         onStage,
@@ -51,6 +53,7 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
       onCss("");
       onCode("");
       onNarration("");
+      onStoryHtml("");
       onSegments([]);
       onRawJson("");
       onStreamEnded(false);
@@ -122,11 +125,14 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
             if (typeof event.rawJson === "string") onRawJson(event.rawJson);
             break;
           }
+          case "story":
+            onStoryHtml(event.storyHtml ?? "");
+            onLoading(false);
+            break;
           case "session":
             onStreamEnded(true);
             onSessionId(event.id || null);
             onLoading(false);
-            conn?.close();
             break;
           case "error":
             onError(event.error ?? "Stream error");

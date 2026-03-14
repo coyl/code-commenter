@@ -65,6 +65,10 @@ func (a *Adapter) GenerateTitle(ctx context.Context, spec, prompt string) (strin
 	return a.Client.GenerateTitle(ctx, spec, prompt)
 }
 
+func (a *Adapter) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error) {
+	return a.Client.GenerateStory(ctx, title, spec, language, segmentNarrations)
+}
+
 func (a *Adapter) GenerateAudioChunks(ctx context.Context, narration string) ([]string, error) {
 	chunks := make([]string, 0, 32)
 	err := a.Client.GenerateAudioStream(ctx, a.TTSModel, narration, func(base64Chunk string) error {

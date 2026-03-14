@@ -34,5 +34,6 @@ export type JobResponse = {
   css?: string;
   title?: string;
   narrationLang?: string;
+  storyHtml?: string;
   segments: JobSegmentStored[];
 };

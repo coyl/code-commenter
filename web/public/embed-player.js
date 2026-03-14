@@ -70,7 +70,7 @@
     const iframe = document.createElement("iframe");
     iframe.src = iframeUrl.toString();
     iframe.loading = "lazy";
-    iframe.allow = "autoplay";
+    iframe.allow = "autoplay; clipboard-write";
     iframe.title = "Code Commenter Player";
     iframe.style.width = cfg.width;
     iframe.style.height = /^\d+$/.test(cfg.height) ? `${cfg.height}px` : cfg.height;

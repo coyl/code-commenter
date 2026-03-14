@@ -2,12 +2,13 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 
-/** Stage title (normalized) -> progress percentage. 4 parts; CSS step is not shown. */
+/** Stage title (normalized) -> progress percentage. CSS step is not shown. */
 const STAGE_PERCENT: Record<string, number> = {
   "Preparing your code": 25,
   "Generating task spec": 25,
   "Generating code segments": 50,
   "Generating voiceover": 75,
+  "Generating story": 90,
   "Finalizing": 100,
 };
 

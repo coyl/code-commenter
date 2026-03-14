@@ -1,4 +1,5 @@
 import { getWsBaseAsync } from "@/config";
+import { getSessionToken } from "@/lib/session-token";
 import type { StreamPort, StreamConnection } from "@/ports/stream";
 import type { StreamEvent } from "@/domain/stream";
 import { isStreamEvent } from "@/domain/stream";
@@ -35,6 +36,8 @@ export function parseMessage(data: string): StreamEvent | null {
         return { type: "css", css: msg.css };
       case "session":
         return { type: "session", id: msg.id ?? "" };
+      case "story":
+        return { type: "story", storyHtml: typeof (msg as { storyHtml?: unknown }).storyHtml === "string" ? (msg as { storyHtml: string }).storyHtml : "" };
       case "error":
         return { type: "error", error: msg.error ?? "Stream error" };
       default:
@@ -90,7 +93,13 @@ export const websocketStreamAdapter: StreamPort = {
   async open(path: string): Promise<StreamConnection> {
     const wsBase = await getWsBaseAsync();
     if (!wsBase) throw new Error("Cannot determine WebSocket URL");
-    const ws = new WebSocket(`${wsBase}${path}`);
+    let url = `${wsBase}${path}`;
+    const token = getSessionToken();
+    if (token) {
+      const sep = url.includes("?") ? "&" : "?";
+      url += `${sep}token=${encodeURIComponent(token)}`;
+    }
+    const ws = new WebSocket(url);
     return createConnection(ws);
   },
 };

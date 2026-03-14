@@ -75,9 +75,24 @@ export default function JobPage() {
         <Link href="/" className="text-cyan-400 hover:underline text-sm">
           ← New generation
         </Link>
-        {narrationLabel && (
-          <span className="text-xs text-zinc-500">Narration: {narrationLabel}</span>
-        )}
+        <div className="flex items-center gap-3">
+          {job.storyHtml && id && (
+            <Link
+              href={`/story/${id}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-600 text-zinc-200 hover:text-white hover:border-zinc-400 text-sm font-medium transition-colors"
+            >
+              View story
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+            </Link>
+          )}
+          {narrationLabel && (
+            <span className="text-xs text-zinc-500">Narration: {narrationLabel}</span>
+          )}
+        </div>
       </div>
 
       {title && (

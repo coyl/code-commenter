@@ -65,7 +65,9 @@ func HandleAuthCallback(cfg *auth.OAuthConfig, sessionSecret string, allowedOrig
 		}
 		auth.SetSession(w, r, sessionSecret, user)
 		log.Info().Str("sub", user.Sub).Str("email", user.Email).Msg("user signed in")
-		auth.RedirectTo(w, r, redirect, allowedOrigins)
+		token := auth.GenerateSessionToken(sessionSecret, user)
+		callbackURL := auth.BuildTokenCallbackURL(redirect, token)
+		auth.RedirectTo(w, r, callbackURL, allowedOrigins)
 	}
 }
 
