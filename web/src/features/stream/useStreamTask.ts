@@ -127,12 +127,11 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
           }
           case "story":
             onStoryHtml(event.storyHtml ?? "");
+            onLoading(false);
             break;
           case "session":
             onStreamEnded(true);
             onSessionId(event.id || null);
-            onLoading(false);
-            conn?.close();
             break;
           case "error":
             onError(event.error ?? "Stream error");
