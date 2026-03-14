@@ -507,10 +507,24 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
       <style>{`@keyframes codePlayerNarrationScroll { from { transform: translateX(0); } to { transform: translateX(var(--narration-scroll-end, 0)); } }`}</style>
       <div
         id="code-view"
-        className={`overflow-hidden border border-zinc-700 bg-zinc-900 h-[400px] flex flex-col ${
+        className={`relative overflow-hidden border border-zinc-700 bg-zinc-900 h-[400px] flex flex-col ${
           segments.length > 0 ? "rounded-t-lg" : "rounded-lg"
         }`}
       >
+        {segments.length > 0 && !isPlaying && (
+          <button
+            type="button"
+            onClick={togglePlayPause}
+            className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 transition-opacity hover:bg-black/40 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-inset"
+            aria-label="Play"
+          >
+            <span className="flex h-16 items-center justify-center rounded-xl px-7 py-5 bg-red-700 hover:bg-red-600 shadow-lg shadow-black/40 transition-transform hover:scale-105 focus:scale-105">
+              <svg className="-ml-[3px] h-10 w-10 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </span>
+          </button>
+        )}
         <pre
           ref={codeContainerRef}
           className="p-4 text-sm overflow-y-auto overflow-x-hidden font-mono whitespace-pre-wrap break-words text-zinc-100 flex-1 min-h-0 scrollbar-hide"
