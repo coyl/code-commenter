@@ -331,13 +331,14 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		if userCodeMode {
 			jobPrompt = "User-provided code"
 		}
-		uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), s3UploadTimeout)
-		defer cancelUpload()
+		// Keep persistence work alive even if the stream request context is canceled
+		// (e.g. websocket closes), but reserve the s3UploadTimeout budget for UploadJob only.
+		persistCtx := context.WithoutCancel(ctx)
 		titlePrompt := jobPrompt
 		if userCodeMode && len(segments) > 0 {
 			titlePrompt = segmentNarrationsSummary(segments, 800)
 		}
-		title, _ := o.Generation.GenerateTitle(uploadCtx, spec, titlePrompt)
+		title, _ := o.Generation.GenerateTitle(persistCtx, spec, titlePrompt)
 		if title == "" {
 			title = jobPrompt
 			title = truncateRunesWithEllipsis(title, 60)
@@ -345,7 +346,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 
 		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating story"}))
 		storyNarrations := segmentNarrationsSummary(segments, 3000)
-		storyHTML, storyErr := o.Generation.GenerateStory(uploadCtx, title, spec, req.Language, storyNarrations, codePlain)
+		storyHTML, storyErr := o.Generation.GenerateStory(persistCtx, title, spec, req.Language, storyNarrations, codePlain)
 		if storyErr != nil {
 			log.Error().Err(storyErr).Str("job", jobID).Msg("story generation failed")
 			storyHTML = ""
@@ -391,7 +392,10 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		if req.Owner != nil {
 			ownerSub, ownerEmail = req.Owner.Sub, req.Owner.Email
 		}
-		if upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, ownerSub, ownerEmail, storyHTML, storedSegments, segmentAudio); upErr != nil {
+		uploadCtx, cancelUpload := context.WithTimeout(persistCtx, s3UploadTimeout)
+		upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, ownerSub, ownerEmail, storyHTML, storedSegments, segmentAudio)
+		cancelUpload()
+		if upErr != nil {
 			ev := log.Error().Err(upErr).Str("job", jobID).Dur("timeout", s3UploadTimeout)
 			if errors.Is(upErr, context.DeadlineExceeded) {
 				ev.Msg("S3 upload timed out")

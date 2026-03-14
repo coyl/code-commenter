@@ -39,6 +39,22 @@ func (f fakeGeneration) GenerateStory(context.Context, string, string, string, s
 	return "<p>Intro</p>\n{{EMBED_PLAYER}}\n<p>Outro</p>", nil
 }
 
+type inspectingGeneration struct {
+	fakeGeneration
+	titleHadDeadline bool
+	storyHadDeadline bool
+}
+
+func (g *inspectingGeneration) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
+	_, g.titleHadDeadline = ctx.Deadline()
+	return g.fakeGeneration.GenerateTitle(ctx, spec, prompt)
+}
+
+func (g *inspectingGeneration) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations, fullCodePlain string) (string, error) {
+	_, g.storyHadDeadline = ctx.Deadline()
+	return g.fakeGeneration.GenerateStory(ctx, title, spec, language, segmentNarrations, fullCodePlain)
+}
+
 type fakeAudio struct {
 	errFor map[string]error
 }
@@ -87,6 +103,20 @@ func (fakeJobs) GetJob(context.Context, string) (interface{}, error) {
 	return nil, errors.New("not implemented")
 }
 func (f fakeJobs) IsEnabled() bool { return f.enabled }
+
+type inspectingJobs struct {
+	enabled           bool
+	uploadHadDeadline bool
+}
+
+func (j *inspectingJobs) UploadJob(ctx context.Context, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ []ports.JobSegment, _ [][]byte) error {
+	_, j.uploadHadDeadline = ctx.Deadline()
+	return nil
+}
+func (j *inspectingJobs) GetJob(context.Context, string) (interface{}, error) {
+	return nil, errors.New("not implemented")
+}
+func (j *inspectingJobs) IsEnabled() bool { return j.enabled }
 
 type captureSink struct {
 	events []ports.StreamEvent
@@ -224,5 +254,43 @@ func TestOrchestratorRejectsUserCodeOverLimit(t *testing.T) {
 	}
 	if segmentCount > 0 {
 		t.Fatalf("expected no segment events when over limit, got %d", segmentCount)
+	}
+}
+
+func TestOrchestratorUsesFreshTimeoutOnlyForUpload(t *testing.T) {
+	sessions := &fakeSessions{}
+	sink := &captureSink{}
+	gen := &inspectingGeneration{
+		fakeGeneration: fakeGeneration{
+			segments: []ports.CodeSegment{
+				{Code: "const a = 1", Narration: "segment-one"},
+			},
+		},
+	}
+	jobs := &inspectingJobs{enabled: true}
+	o := &StreamOrchestrator{
+		Generation: gen,
+		Audio:      fakeAudio{errFor: map[string]error{}},
+		Renderer:   fakeRenderer{},
+		Sessions:   sessions,
+		Jobs:       jobs,
+		Aligner:    domain.Service{},
+	}
+
+	_, err := o.Run(context.Background(), StreamRequest{
+		Task:     "build x",
+		Language: "javascript",
+	}, sink)
+	if err != nil {
+		t.Fatalf("Run() err = %v", err)
+	}
+	if gen.titleHadDeadline {
+		t.Fatal("expected GenerateTitle context without timeout deadline")
+	}
+	if gen.storyHadDeadline {
+		t.Fatal("expected GenerateStory context without timeout deadline")
+	}
+	if !jobs.uploadHadDeadline {
+		t.Fatal("expected UploadJob context to include timeout deadline")
 	}
 }
