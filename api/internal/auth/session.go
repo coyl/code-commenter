@@ -42,15 +42,10 @@ func SetSession(w http.ResponseWriter, r *http.Request, secret string, u *ports.
 	if secret == "" || u == nil {
 		return
 	}
-	payload := sessionPayload{
-		Sub:     u.Sub,
-		Email:   u.Email,
-		Expires: time.Now().Unix() + sessionMaxAge,
+	value := GenerateSessionToken(secret, u)
+	if value == "" {
+		return
 	}
-	raw, _ := json.Marshal(payload)
-	b64 := base64.RawURLEncoding.EncodeToString(raw)
-	sig := signSession(secret, b64)
-	value := b64 + "." + sig
 	secure := isSecureRequest(r)
 	cookie := &http.Cookie{
 		Name:     sessionCookieName,
