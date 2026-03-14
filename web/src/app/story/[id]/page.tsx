@@ -3,9 +3,19 @@
 import React, { useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import DOMPurify from "dompurify";
 import { useJob } from "@/features/job/useJob";
 
 const EMBED_PLAYER_MARKER = "{{EMBED_PLAYER}}";
+
+/** Tags the backend LLM is instructed to use; no script, no event handlers. */
+const STORY_ALLOWED_TAGS = ["h1", "h2", "p", "ul", "li", "strong", "em", "code"];
+
+/** Sanitize LLM-generated story HTML to prevent XSS (prompt injection → script/onerror etc.). */
+function sanitizeStoryHtml(html: string): string {
+  if (typeof window === "undefined") return html;
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS: STORY_ALLOWED_TAGS });
+}
 
 /** Returns the storyHtml with the marker replaced by an iframe pointing to /embed/{id}. */
 function injectEmbed(storyHtml: string, id: string): string {
@@ -20,7 +30,8 @@ export default function StoryPage() {
 
   const finalHtml = useMemo(() => {
     if (!job?.storyHtml || !id) return null;
-    return injectEmbed(job.storyHtml, id);
+    const sanitized = sanitizeStoryHtml(job.storyHtml);
+    return injectEmbed(sanitized, id);
   }, [job?.storyHtml, id]);
 
   if (loading) {
