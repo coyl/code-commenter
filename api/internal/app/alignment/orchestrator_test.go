@@ -35,7 +35,7 @@ func (f fakeGeneration) GenerateWrappingNarrationForUserCode(context.Context, st
 func (f fakeGeneration) GenerateTitle(context.Context, string, string) (string, error) {
 	return "Test title", nil
 }
-func (f fakeGeneration) GenerateStory(context.Context, string, string, string, string, string) (string, error) {
+func (f fakeGeneration) GenerateStory(context.Context, string, string, string, string) (string, error) {
 	return "<p>Intro</p>\n{{EMBED_PLAYER}}\n<p>Outro</p>", nil
 }
 
@@ -50,9 +50,9 @@ func (g *inspectingGeneration) GenerateTitle(ctx context.Context, spec, prompt s
 	return g.fakeGeneration.GenerateTitle(ctx, spec, prompt)
 }
 
-func (g *inspectingGeneration) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations, fullCodePlain string) (string, error) {
+func (g *inspectingGeneration) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error) {
 	_, g.storyHadDeadline = ctx.Deadline()
-	return g.fakeGeneration.GenerateStory(ctx, title, spec, language, segmentNarrations, fullCodePlain)
+	return g.fakeGeneration.GenerateStory(ctx, title, spec, language, segmentNarrations)
 }
 
 type fakeAudio struct {

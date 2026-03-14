@@ -45,7 +45,7 @@ type GenerationPort interface {
 	GenerateTitle(ctx context.Context, spec, prompt string) (string, error)
 	// GenerateStory returns an HTML article body (no html/head/body tags) describing the problem and solution.
 	// The text includes the marker {{EMBED_PLAYER}} exactly once, positioned in the middle so an embed iframe can be injected there.
-	GenerateStory(ctx context.Context, title, spec, language, segmentNarrations, fullCodePlain string) (string, error)
+	GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error)
 }
 
 // AudioPort owns narration -> audio chunk generation.

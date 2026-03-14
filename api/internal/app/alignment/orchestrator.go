@@ -346,7 +346,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 
 		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating story"}))
 		storyNarrations := segmentNarrationsSummary(segments, 3000)
-		storyHTML, storyErr := o.Generation.GenerateStory(persistCtx, title, spec, req.Language, storyNarrations, codePlain)
+		storyHTML, storyErr := o.Generation.GenerateStory(persistCtx, title, spec, req.Language, storyNarrations)
 		if storyErr != nil {
 			log.Error().Err(storyErr).Str("job", jobID).Msg("story generation failed")
 			storyHTML = ""

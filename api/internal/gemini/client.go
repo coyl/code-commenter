@@ -302,7 +302,7 @@ No code snippets, no markdown. Output only the narration text, nothing else.`, s
 // GenerateStory returns an HTML article body describing the problem and its solution.
 // The returned HTML contains the marker {{EMBED_PLAYER}} exactly once, positioned mid-article so
 // the frontend can inject an embed iframe there.
-func (c *Client) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations, fullCodePlain string) (storyHTML string, err error) {
+func (c *Client) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (storyHTML string, err error) {
 	start := time.Now()
 	defer func() {
 		ev := log.Info().Str("op", "GenerateStory").Dur("dur", time.Since(start))
