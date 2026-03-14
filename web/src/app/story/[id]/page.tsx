@@ -9,7 +9,7 @@ const EMBED_PLAYER_MARKER = "{{EMBED_PLAYER}}";
 
 /** Returns the storyHtml with the marker replaced by an iframe pointing to /embed/{id}. */
 function injectEmbed(storyHtml: string, id: string): string {
-  const iframe = `<div class="story-embed-container"><iframe src="/embed/${encodeURIComponent(id)}" title="Interactive code player" allow="clipboard-write" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;display:block;"></iframe></div>`;
+  const iframe = `<div class="story-embed-container"><iframe src="/embed/${encodeURIComponent(id)}" title="Interactive code player" allow="autoplay; clipboard-write" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;display:block;"></iframe></div>`;
   return storyHtml.replace(EMBED_PLAYER_MARKER, iframe);
 }
 
