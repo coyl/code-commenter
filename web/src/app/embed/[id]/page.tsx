@@ -84,8 +84,11 @@ export default function EmbedJobPage() {
 
   if (loading) {
     return (
-      <main className="min-h-[320px] p-4 flex items-center justify-center bg-zinc-900">
-        <p className="text-zinc-400 text-sm">Loading player...</p>
+      <main className="min-h-[320px] flex items-center justify-center bg-zinc-900">
+        <div className="flex items-center gap-3 text-zinc-500 text-sm">
+          <span className="w-4 h-4 rounded-full border-2 border-zinc-700 border-t-cyan-500 animate-spin" />
+          Loading…
+        </div>
       </main>
     );
   }
@@ -93,7 +96,7 @@ export default function EmbedJobPage() {
   if (error || !job) {
     return (
       <main className="min-h-[320px] p-4 flex items-center justify-center bg-zinc-900">
-        <div className="p-3 rounded bg-red-900/30 border border-red-700 text-red-200 text-sm">
+        <div className="px-4 py-3 rounded-xl bg-red-950/40 border border-red-800/50 text-red-300 text-sm">
           {error || "Job not found"}
         </div>
       </main>
@@ -107,11 +110,11 @@ export default function EmbedJobPage() {
 
   return (
     <main
-      className="relative w-full bg-zinc-900 rounded-lg overflow-hidden"
+      className="relative w-full bg-zinc-950 rounded-xl overflow-hidden"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="p-3">
+      <div className="p-2.5">
         <CodePlayer
           segments={segments}
           displayedCode={displayedCode}
@@ -121,9 +124,9 @@ export default function EmbedJobPage() {
         />
       </div>
 
-      {/* YouTube-style overlay: title + narration language on mouse move (top bar, does not cover controls) */}
+      {/* Title overlay: visible on mouse hover */}
       <div
-        className="absolute inset-x-0 top-0 py-2 px-3 pointer-events-none bg-gradient-to-b from-black/75 to-transparent transition-opacity duration-300"
+        className="absolute inset-x-0 top-0 py-2.5 px-4 pointer-events-none bg-gradient-to-b from-black/70 to-transparent transition-opacity duration-300"
         style={{ opacity: overlayVisible ? 1 : 0 }}
         aria-hidden
       >
@@ -132,7 +135,7 @@ export default function EmbedJobPage() {
             {title || "Code walkthrough"}
           </span>
           {narrationLabel && (
-            <span className="text-xs text-zinc-300 shrink-0">Narration: {narrationLabel}</span>
+            <span className="text-xs text-zinc-400 shrink-0 tabular-nums">{narrationLabel}</span>
           )}
         </div>
       </div>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { fetchApiAdapter } from "@/adapters/api";
 import type { JobMeta } from "@/domain/api";
 
-const SIDEBAR_WIDTH_OPEN = 280;
+const SIDEBAR_WIDTH_OPEN = 264;
 const SIDEBAR_WIDTH_COLLAPSED = 48;
 
 type JobsSidebarProps = {
@@ -23,7 +23,11 @@ function formatDate(ms: number): string {
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
   if (sameDay) return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+  });
 }
 
 export default function JobsSidebar({
@@ -67,59 +71,76 @@ export default function JobsSidebar({
 
   if (!signedIn) return null;
 
-  const width = open ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_COLLAPSED;
-
   return (
     <aside
-      className="flex-shrink-0 border-r border-zinc-700 bg-zinc-900/80 flex flex-col transition-[width] duration-200 ease-out"
-      style={{ width }}
+      className={[
+        // Shared base styles
+        "jobs-sidebar flex-shrink-0 flex flex-col bg-zinc-900/95",
+        // Mobile: full-width horizontal panel below header, shown/hidden via display
+        // Desktop (md+): left column, always shown; width controlled by CSS var
+        open
+          ? "w-full border-b border-zinc-800/70 md:border-b-0 md:border-r md:border-zinc-800/70"
+          : "hidden md:flex md:border-r md:border-zinc-800/70",
+      ].join(" ")}
+      style={{
+        ["--sidebar-w" as string]: open
+          ? `${SIDEBAR_WIDTH_OPEN}px`
+          : `${SIDEBAR_WIDTH_COLLAPSED}px`,
+      }}
     >
-      <div className="flex items-center h-12 min-h-12 border-b border-zinc-700 px-2 flex-shrink-0">
+      {/* Header bar — always visible when the aside is shown */}
+      <div className="flex items-center h-12 min-h-12 border-b border-zinc-800/60 flex-shrink-0 px-2 gap-1">
+        {/* Desktop-only: collapse / expand chevron */}
         <button
           type="button"
           onClick={onToggle}
-          className="p-2 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+          className="hidden md:flex items-center justify-center w-8 h-8 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/80 transition-colors flex-shrink-0"
           aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-          title={open ? "Collapse sidebar" : "My jobs"}
+          title={open ? "Collapse" : "My jobs"}
         >
           {open ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6" />
             </svg>
           ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 18l6-6-6-6" />
             </svg>
           )}
         </button>
-        {open && (
-          <span className="ml-1 text-sm font-medium text-zinc-300 truncate">
-            My jobs
-          </span>
-        )}
+
+        {/* Label: always visible on mobile (sidebar only mounts when open), only when open on desktop */}
+        <span className={`text-sm font-semibold text-zinc-300 flex-1 truncate ml-1 ${!open ? "md:hidden" : ""}`}>
+          My jobs
+        </span>
       </div>
+
+      {/* Job list — only rendered when the panel is open */}
       {open && (
-        <div className="flex-1 overflow-auto min-h-0">
+        <div className="flex-1 overflow-y-auto min-h-0">
           {loading ? (
-            <div className="p-3 text-zinc-500 text-sm">Loading…</div>
+            <div className="px-4 py-4 text-zinc-500 text-xs">Loading…</div>
           ) : error ? (
-            <div className="p-3 text-red-400 text-sm">{error}</div>
+            <div className="px-4 py-4 text-red-400 text-xs">{error}</div>
           ) : jobs.length === 0 ? (
-            <div className="p-3 text-zinc-500 text-sm">No jobs yet.</div>
+            <div className="px-4 py-4 text-zinc-500 text-xs">No jobs yet.</div>
           ) : (
-            <ul className="py-2">
+            <ul className="py-1">
               {jobs.map((job) => (
                 <li key={job.id}>
                   <Link
                     href={`/jobs/${job.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 border-l-2 border-transparent hover:border-cyan-500"
+                    className="group flex flex-col px-3 py-2.5 border-l-2 border-transparent hover:border-cyan-500/60 hover:bg-zinc-800/50 transition-colors"
                   >
-                    <span className="block truncate font-medium" title={job.title}>
+                    <span
+                      className="text-sm font-medium text-zinc-300 group-hover:text-zinc-100 truncate transition-colors"
+                      title={job.title}
+                    >
                       {job.title || "Untitled"}
                     </span>
-                    <span className="block text-xs text-zinc-500 mt-0.5">
+                    <span className="text-xs text-zinc-600 mt-0.5">
                       {formatDate(job.createdAt)}
                     </span>
                   </Link>

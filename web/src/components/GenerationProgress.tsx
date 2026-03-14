@@ -52,7 +52,7 @@ export default function GenerationProgress({ stage }: Props) {
 
   return (
     <div
-      className="mb-6 rounded-lg border border-cyan-800/60 bg-cyan-950/30 px-4 py-3"
+      className="mb-5 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3.5 shadow-sm"
       role="status"
       aria-live="polite"
       aria-valuenow={percent}
@@ -61,18 +61,19 @@ export default function GenerationProgress({ stage }: Props) {
       aria-label={`${label} — ${percent}%`}
     >
       <div className="flex items-center gap-3">
-        <div
-          className="h-2 flex-1 min-w-0 rounded-full bg-zinc-800 overflow-hidden"
-          aria-hidden
-        >
+        {/* Animated pulse dot */}
+        <span className="flex-shrink-0 w-2 h-2 rounded-full bg-cyan-500 animate-pulse" aria-hidden />
+
+        <div className="h-1.5 flex-1 min-w-0 rounded-full bg-zinc-800 overflow-hidden">
           <div
-            className="h-full rounded-full bg-cyan-500 transition-[width] duration-300 ease-out"
+            className="h-full rounded-full bg-gradient-to-r from-cyan-600 to-cyan-400 transition-[width] duration-500 ease-out"
             style={{ width: `${percent}%` }}
           />
         </div>
-        <span className="text-sm font-medium text-cyan-200/90 whitespace-nowrap tabular-nums">
+
+        <span className="flex-shrink-0 text-xs font-medium text-zinc-400 whitespace-nowrap tabular-nums">
           {label}
-          <span className="text-zinc-500 font-normal ml-1">({percent}%)</span>
+          <span className="text-zinc-600 font-normal ml-1">({percent}%)</span>
         </span>
       </div>
     </div>

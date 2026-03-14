@@ -3,18 +3,30 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f0f12;
-  --foreground: #e4e4e7;
+  --background: #09090b;
+  --foreground: #fafafa;
   --muted: #71717a;
   --accent: #22d3ee;
   --card: #18181b;
   --border: #27272a;
+  --border-bright: #3f3f46;
+  --surface-1: #18181b;
+  --surface-2: #1c1c1f;
+  --surface-3: #27272a;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Sidebar: on desktop the width is controlled by --sidebar-w CSS variable.
+   The mobile show/hide is handled by Tailwind responsive classes. */
+@media (min-width: 768px) {
+  .jobs-sidebar {
+    width: var(--sidebar-w, 264px);
+    transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
 }
 
 /* Dynamic theme from backend will be injected into #dynamic-theme */
