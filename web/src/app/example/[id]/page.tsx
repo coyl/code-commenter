@@ -48,7 +48,7 @@ export default function ExamplePage() {
             title="Anee Explainee player"
             className="w-full h-full border-0 block overflow-hidden"
             style={{ overflow: "hidden" }}
-            allow="autoplay"
+            allow="autoplay; clipboard-write"
             scrolling="no"
           />
         </div>
