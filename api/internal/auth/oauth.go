@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -179,13 +180,7 @@ func SetStateCookie(w http.ResponseWriter, r *http.Request, secret, token string
 		MaxAge:   oauthStateMaxAge,
 		HttpOnly: true,
 	}
-	if secure {
-		cookie.SameSite = http.SameSiteNoneMode
-		cookie.Secure = true
-	} else {
-		cookie.SameSite = http.SameSiteLaxMode
-		cookie.Secure = false
-	}
+	setCrossSiteAttrs(cookie, secure)
 	http.SetCookie(w, cookie)
 }
 
@@ -219,14 +214,29 @@ func ClearStateCookie(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 	}
-	if secure {
-		cookie.SameSite = http.SameSiteNoneMode
-		cookie.Secure = true
-	} else {
-		cookie.SameSite = http.SameSiteLaxMode
-		cookie.Secure = false
-	}
+	setCrossSiteAttrs(cookie, secure)
 	http.SetCookie(w, cookie)
+}
+
+// BuildTokenCallbackURL constructs a frontend callback URL that delivers the session token
+// in the URL fragment (not sent to servers). The frontend callback page reads the fragment,
+// stores the token in localStorage, and redirects to finalRedirect.
+// Format: https://ORIGIN/auth/callback#token=TOKEN&redirect=PATH
+func BuildTokenCallbackURL(finalRedirect, token string) string {
+	u, err := url.Parse(finalRedirect)
+	if err != nil || u.Host == "" {
+		return finalRedirect
+	}
+	remaining := u.Path
+	if remaining == "" {
+		remaining = "/"
+	}
+	if u.RawQuery != "" {
+		remaining += "?" + u.RawQuery
+	}
+	cb := u.Scheme + "://" + u.Host + "/auth/callback"
+	fragment := "token=" + url.QueryEscape(token) + "&redirect=" + url.QueryEscape(remaining)
+	return cb + "#" + fragment
 }
 
 func signState(secret, payload string) string {

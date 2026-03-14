@@ -59,13 +59,7 @@ func SetSession(w http.ResponseWriter, r *http.Request, secret string, u *ports.
 		MaxAge:   sessionMaxAge,
 		HttpOnly: true,
 	}
-	if secure {
-		cookie.SameSite = http.SameSiteNoneMode
-		cookie.Secure = true
-	} else {
-		cookie.SameSite = http.SameSiteLaxMode
-		cookie.Secure = false
-	}
+	setCrossSiteAttrs(cookie, secure)
 	http.SetCookie(w, cookie)
 }
 
@@ -79,26 +73,33 @@ func ClearSession(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 	}
-	if secure {
-		cookie.SameSite = http.SameSiteNoneMode
-		cookie.Secure = true
-	} else {
-		cookie.SameSite = http.SameSiteLaxMode
-		cookie.Secure = false
-	}
+	setCrossSiteAttrs(cookie, secure)
 	http.SetCookie(w, cookie)
 }
 
-// FromRequest returns the user from the request's session cookie, or nil.
-func FromRequest(r *http.Request, secret string) *ports.UserInfo {
-	if secret == "" {
+// GenerateSessionToken creates a signed session token for the given user.
+// The format is identical to the session cookie value (base64-JSON + "." + HMAC).
+func GenerateSessionToken(secret string, u *ports.UserInfo) string {
+	if secret == "" || u == nil {
+		return ""
+	}
+	payload := sessionPayload{
+		Sub:     u.Sub,
+		Email:   u.Email,
+		Expires: time.Now().Unix() + sessionMaxAge,
+	}
+	raw, _ := json.Marshal(payload)
+	b64 := base64.RawURLEncoding.EncodeToString(raw)
+	sig := signSession(secret, b64)
+	return b64 + "." + sig
+}
+
+// FromTokenString verifies a raw session token string and returns the user, or nil.
+func FromTokenString(token, secret string) *ports.UserInfo {
+	if secret == "" || token == "" {
 		return nil
 	}
-	c, err := r.Cookie(sessionCookieName)
-	if err != nil || c.Value == "" {
-		return nil
-	}
-	parts := strings.SplitN(c.Value, ".", 2)
+	parts := strings.SplitN(token, ".", 2)
 	if len(parts) != 2 {
 		return nil
 	}
@@ -118,6 +119,46 @@ func FromRequest(r *http.Request, secret string) *ports.UserInfo {
 		return nil
 	}
 	return &ports.UserInfo{Sub: p.Sub, Email: p.Email}
+}
+
+// FromRequest returns the user from the request. Checks (in order):
+//  1. Authorization: Bearer <token> header
+//  2. ?token= query parameter (for WebSocket upgrade where custom headers aren't supported)
+//  3. Session cookie
+func FromRequest(r *http.Request, secret string) *ports.UserInfo {
+	if secret == "" {
+		return nil
+	}
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		if u := FromTokenString(strings.TrimPrefix(h, "Bearer "), secret); u != nil {
+			return u
+		}
+	}
+	if t := r.URL.Query().Get("token"); t != "" {
+		if u := FromTokenString(t, secret); u != nil {
+			return u
+		}
+	}
+	c, err := r.Cookie(sessionCookieName)
+	if err != nil || c.Value == "" {
+		return nil
+	}
+	return FromTokenString(c.Value, secret)
+}
+
+// setCrossSiteAttrs sets Secure, SameSite, and Partitioned on a cookie.
+// HTTPS: SameSite=None + Secure + Partitioned (CHIPS) so the cookie works cross-site even when
+// third-party cookies are blocked (e.g. Chrome incognito).
+// HTTP (local dev): SameSite=Lax, no Secure/Partitioned.
+func setCrossSiteAttrs(c *http.Cookie, secure bool) {
+	if secure {
+		c.SameSite = http.SameSiteNoneMode
+		c.Secure = true
+		c.Partitioned = true
+	} else {
+		c.SameSite = http.SameSiteLaxMode
+		c.Secure = false
+	}
 }
 
 func signSession(secret, payload string) string {

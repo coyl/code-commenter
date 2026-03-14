@@ -326,12 +326,6 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		Narration: "",
 	})
 
-	// Emit session (permalink) immediately so the client can show it before any long S3 upload.
-	// On Cloud Run the WebSocket can be closed by timeouts/proxy if we wait until after upload.
-	if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
-		return "", err
-	}
-
 	if o.Jobs != nil && o.Jobs.IsEnabled() && jobID != "" {
 		jobPrompt := req.Task
 		if userCodeMode {
@@ -360,6 +354,11 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 				return "", err
 			}
 			log.Info().Str("phase", "story").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
+		}
+
+		// Emit session after story so the client receives story before closing the WebSocket.
+		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
+			return "", err
 		}
 
 		storedSegments := make([]ports.JobSegment, 0, len(aligned)+1)
@@ -399,6 +398,11 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			} else {
 				ev.Msg("S3 upload failed")
 			}
+		}
+	} else {
+		// No job storage: emit session so the client gets the permalink and can close the stream.
+		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
+			return "", err
 		}
 	}
 

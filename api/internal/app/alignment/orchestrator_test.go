@@ -131,7 +131,7 @@ func TestOrchestratorEmitsCompatibleOrder(t *testing.T) {
 		t.Fatalf("expected at least 7 events, got %d", len(sink.events))
 	}
 	// Event order must include these types in order (stage events may appear in between).
-	wantOrder := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "session", "story"}
+	wantOrder := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "story", "session"}
 	idx := 0
 	for _, e := range sink.events {
 		if idx < len(wantOrder) && e.Type == wantOrder[idx] {

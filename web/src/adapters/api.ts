@@ -1,4 +1,5 @@
 import { getApiBaseAsync } from "@/config";
+import { getSessionToken } from "@/lib/session-token";
 import type { ApiPort, GetMeResult } from "@/ports/api";
 import type { JobResponse, UserInfo, JobMeta } from "@/domain/api";
 
@@ -8,7 +9,12 @@ async function parseJson<T>(res: Response): Promise<T> {
   return text ? (JSON.parse(text) as T) : ({} as T);
 }
 
-const fetchOpts = { credentials: "include" as RequestCredentials };
+function authFetchOpts(): RequestInit {
+  const headers: Record<string, string> = {};
+  const token = getSessionToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return { credentials: "include" as RequestCredentials, headers };
+}
 
 export const fetchApiAdapter: ApiPort = {
   async getJob(jobId: string): Promise<JobResponse> {
@@ -19,7 +25,7 @@ export const fetchApiAdapter: ApiPort = {
   },
   async getMe(): Promise<GetMeResult> {
     const base = await getApiBaseAsync();
-    const res = await fetch(`${base}/me`, { ...fetchOpts });
+    const res = await fetch(`${base}/me`, authFetchOpts());
     if (res.status === 404) return { user: null, authConfigured: false };
     if (res.status === 401) return { user: null, authConfigured: true };
     if (!res.ok) return { user: null, authConfigured: false };
@@ -30,7 +36,7 @@ export const fetchApiAdapter: ApiPort = {
     const base = await getApiBaseAsync();
     const url = new URL(`${base}/jobs/mine`);
     url.searchParams.set("limit", String(limit));
-    const res = await fetch(url.toString(), { ...fetchOpts });
+    const res = await fetch(url.toString(), authFetchOpts());
     if (res.status === 401) return [];
     if (!res.ok) throw new Error("Failed to list jobs");
     return parseJson<JobMeta[]>(res);

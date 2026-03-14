@@ -1,63 +1,28 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "next/navigation";
-import { useEffect, useState, Suspense } from "react";
-import { getApiBaseAsync } from "@/config";
+import { useEffect, Suspense } from "react";
+import { setSessionToken } from "@/lib/session-token";
 
 /**
- * OAuth callback page: Google redirects here (frontend URL).
- * We forward code and state to the backend so it can exchange the code and set the session cookie.
- * Configure AUTH_CALLBACK_URL in the API to this page (e.g. http://localhost:3010/auth/callback).
+ * OAuth callback landing page.
+ * The API redirects here after a successful Google sign-in with the session token
+ * in the URL fragment: /auth/callback#token=TOKEN&redirect=/path
+ * We store the token in localStorage (works even when third-party cookies are blocked)
+ * and navigate to the original redirect destination.
  */
 function AuthCallbackInner() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
-    const code = searchParams.get("code");
-    const state = searchParams.get("state");
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const token = params.get("token");
+    const redirect = params.get("redirect") || "/";
 
-    if (!code) {
-      setError("Missing authorization code");
-      return;
+    if (token) {
+      setSessionToken(token);
     }
 
-    let cancelled = false;
-    getApiBaseAsync()
-      .then((base) => {
-        if (cancelled) return;
-        const url = new URL("/auth/callback", base);
-        url.searchParams.set("code", code);
-        if (state) url.searchParams.set("state", state);
-        window.location.href = url.toString();
-      })
-      .catch(() => {
-        if (!cancelled) setError("Failed to load API config");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [searchParams]);
-
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-zinc-950 text-zinc-300 p-4">
-        <div className="text-center">
-          <p className="text-red-400 mb-4">{error}</p>
-          <button
-            type="button"
-            onClick={() => router.push("/")}
-            className="px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-sm"
-          >
-            Back to app
-          </button>
-        </div>
-      </div>
-    );
-  }
+    window.location.replace(redirect);
+  }, []);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-zinc-950 text-zinc-400">
