@@ -65,8 +65,8 @@ func (a *Adapter) GenerateTitle(ctx context.Context, spec, prompt string) (strin
 	return a.Client.GenerateTitle(ctx, spec, prompt)
 }
 
-func (a *Adapter) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error) {
-	return a.Client.GenerateStory(ctx, title, spec, language, segmentNarrations)
+func (a *Adapter) GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (string, error) {
+	return a.Client.GenerateStory(ctx, title, spec, language, narrationLang, segmentNarrations)
 }
 
 func (a *Adapter) GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (ports.JobImages, error) {

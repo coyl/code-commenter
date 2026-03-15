@@ -348,7 +348,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 
 		// Story and visuals are best-effort: log on emit failure but always reach UploadJob.
 		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating story"}))
-		storyHTML, storyErr := o.Generation.GenerateStory(persistCtx, title, spec, req.Language, storyNarrations)
+		storyHTML, storyErr := o.Generation.GenerateStory(persistCtx, title, spec, req.Language, req.NarrationLanguage, storyNarrations)
 		if storyErr != nil {
 			log.Error().Err(storyErr).Str("job", jobID).Msg("story generation failed")
 			storyHTML = ""

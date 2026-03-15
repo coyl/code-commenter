@@ -44,8 +44,8 @@ type GenerationPort interface {
 	GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error)
 	GenerateTitle(ctx context.Context, spec, prompt string) (string, error)
 	// GenerateStory returns an HTML article body (no html/head/body tags) describing the problem and solution.
-	// The text includes the marker {{EMBED_PLAYER}} exactly once, positioned in the middle so an embed iframe can be injected there.
-	GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error)
+	// The text is written in narrationLang (same as the voiceover). The marker {{EMBED_PLAYER}} appears exactly once, mid-article.
+	GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (string, error)
 	// GenerateImages returns a video-preview thumbnail and an article illustration as base64-encoded PNGs (640x480 each).
 	GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (JobImages, error)
 }

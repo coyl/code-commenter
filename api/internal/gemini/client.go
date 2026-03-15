@@ -303,8 +303,8 @@ No code snippets, no markdown. Output only the narration text, nothing else.`, s
 
 // GenerateStory returns an HTML article body describing the problem and its solution.
 // The returned HTML contains the marker {{EMBED_PLAYER}} exactly once, positioned mid-article so
-// the frontend can inject an embed iframe there.
-func (c *Client) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (storyHTML string, err error) {
+// the frontend can inject an embed iframe there. The article text is written in narrationLang.
+func (c *Client) GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (storyHTML string, err error) {
 	start := time.Now()
 	defer func() {
 		ev := log.Info().Str("op", "GenerateStory").Dur("dur", time.Since(start))
@@ -314,21 +314,23 @@ func (c *Client) GenerateStory(ctx context.Context, title, spec, language, segme
 		ev.Msg("llm request")
 	}()
 
+	narrationLabel := narrationLanguageLabel(narrationLang)
 	prompt := fmt.Sprintf(`You are a technical writer. Write a short, engaging article about the coding problem below and how it was solved. The article will be published on a developer blog and will have an interactive code player embedded in the middle.
 
 Title: %s
-Language: %s
+Programming language: %s
 Problem/Spec: %s
 How it was solved (segment narrations):
 %s
 
 Rules:
+- Write the ENTIRE article in %s (same language as the voiceover/narration).
 - Write ONLY the HTML body content — no <html>, <head>, or <body> tags, no CSS, no <script>.
 - Use only these tags: <h1>, <h2>, <p>, <ul>, <li>, <strong>, <em>, <code>.
 - Structure: a short intro (1-2 paragraphs) that sets up the problem, then the exact text {{EMBED_PLAYER}} on its own line (this is where the interactive player will be inserted), then a conclusion (1-2 paragraphs) that summarises what was built and what to take away.
 - Keep it concise: roughly 200-350 words total.
 - Do NOT include the actual source code in the article body; the player shows it.
-- Output only the HTML, no markdown code fences, no explanation.`, title, language, spec, segmentNarrations)
+- Output only the HTML, no markdown code fences, no explanation.`, title, language, spec, segmentNarrations, narrationLabel)
 
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
