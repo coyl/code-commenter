@@ -1,12 +1,18 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	_ "image/jpeg"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -341,6 +347,152 @@ Rules:
 		raw = raw + "\n<p>{{EMBED_PLAYER}}</p>"
 	}
 	return raw, nil
+}
+
+const imageModel = "gemini-3.1-flash-image-preview"
+
+// GenerateImages returns a video-preview thumbnail and an article illustration, both as base64-encoded PNGs
+// resized to 640x480. The two images are generated in parallel. On any error the affected string is empty.
+func (c *Client) GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (preview, illustration string, err error) {
+	start := time.Now()
+	defer func() {
+		ev := log.Info().Str("op", "GenerateImages").Dur("dur", time.Since(start))
+		if err != nil {
+			ev = log.Error().Err(err).Str("op", "GenerateImages").Dur("dur", time.Since(start))
+		}
+		ev.Msg("llm request")
+	}()
+
+	previewPrompt := fmt.Sprintf(`Create a clean, simple YouTube-style video thumbnail for a developer coding tutorial.
+Title: %s
+Language: %s
+Topic: %s
+
+Rules:
+- Dark background (like a dark IDE theme).
+- Show a bold, clean visual concept for the coding topic — NOT actual code text.
+- Use simple geometric shapes, icons, or abstract design elements that represent the concept.
+- Bold, high-contrast typography for a short (3-5 word) version of the title.
+- Professional, polished look. No clutter. No actual source code text.
+Output only the image.`, title, language, spec)
+
+	illustrationPrompt := fmt.Sprintf(`Create a clean technical diagram or conceptual scheme for this coding solution.
+Title: %s
+Language: %s
+Approach (narration summary): %s
+
+Rules:
+- Dark background with light-colored elements.
+- A clear flowchart, architecture diagram, or concept map — whichever best fits the approach.
+- Simple labeled shapes and arrows. No actual source code.
+- Clean, minimal, educational layout easy to read at a glance.
+Output only the diagram image.`, title, segmentNarrations, spec)
+
+	cfg := &genai.GenerateContentConfig{
+		ResponseModalities: []string{"IMAGE"},
+		ImageConfig: &genai.ImageConfig{
+			AspectRatio: "4:3",
+		},
+	}
+
+	type result struct {
+		b64 string
+		err error
+	}
+	var wg sync.WaitGroup
+	prevCh := make(chan result, 1)
+	illustCh := make(chan result, 1)
+
+	generate := func(prompt string, ch chan<- result) {
+		defer wg.Done()
+		resp, e := c.client.Models.GenerateContent(ctx, imageModel, []*genai.Content{
+			{Parts: []*genai.Part{{Text: prompt}}},
+		}, cfg)
+		if e != nil {
+			ch <- result{err: e}
+			return
+		}
+		raw := extractImageBytes(resp)
+		if len(raw) == 0 {
+			ch <- result{err: fmt.Errorf("no image data returned")}
+			return
+		}
+		resized, resizeErr := resizeImageTo640x480(raw)
+		if resizeErr != nil {
+			resized = raw
+		}
+		ch <- result{b64: base64.StdEncoding.EncodeToString(resized)}
+	}
+
+	wg.Add(2)
+	go generate(previewPrompt, prevCh)
+	go generate(illustrationPrompt, illustCh)
+	wg.Wait()
+
+	prevRes := <-prevCh
+	illustRes := <-illustCh
+
+	if prevRes.err != nil && illustRes.err != nil {
+		err = fmt.Errorf("preview: %w; illustration: %v", prevRes.err, illustRes.err)
+		return "", "", err
+	}
+	if prevRes.err != nil {
+		log.Warn().Err(prevRes.err).Msg("preview image generation failed")
+	}
+	if illustRes.err != nil {
+		log.Warn().Err(illustRes.err).Msg("illustration image generation failed")
+	}
+	return prevRes.b64, illustRes.b64, nil
+}
+
+// extractImageBytes pulls the first inline image bytes from a GenerateContent response.
+func extractImageBytes(resp *genai.GenerateContentResponse) []byte {
+	if resp == nil || len(resp.Candidates) == 0 {
+		return nil
+	}
+	c := resp.Candidates[0]
+	if c.Content == nil {
+		return nil
+	}
+	for _, p := range c.Content.Parts {
+		if p.InlineData != nil && len(p.InlineData.Data) > 0 {
+			return p.InlineData.Data
+		}
+	}
+	return nil
+}
+
+// resizeImageTo640x480 decodes any PNG/JPEG image and returns a 640x480 PNG using nearest-neighbor scaling.
+func resizeImageTo640x480(data []byte) ([]byte, error) {
+	const targetW, targetH = 640, 480
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	b := src.Bounds()
+	srcW, srcH := b.Dx(), b.Dy()
+	if srcW == targetW && srcH == targetH {
+		return data, nil
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, targetW, targetH))
+	for y := 0; y < targetH; y++ {
+		for x := 0; x < targetW; x++ {
+			srcX := b.Min.X + x*srcW/targetW
+			srcY := b.Min.Y + y*srcH/targetH
+			r, g, ga, a := src.At(srcX, srcY).RGBA()
+			dst.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(r >> 8),
+				G: uint8(g >> 8),
+				B: uint8(ga >> 8),
+				A: uint8(a >> 8),
+			})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, dst); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code).

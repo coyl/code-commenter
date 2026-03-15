@@ -52,6 +52,8 @@ export type CodePlayerProps = {
   audio?: CodePlayerAudio;
   /** Optional debug stream for diagnostics (used by jobs page, not embed). */
   onDebugSample?: (sample: CodePlayerDebugSample) => void;
+  /** Base64-encoded PNG (640x480) shown as a poster overlay before the first play action. Hidden once playback starts. */
+  previewImageBase64?: string | null;
 };
 
 const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlayer(
@@ -66,6 +68,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
     autoplay = false,
     audio: externalAudio,
     onDebugSample,
+    previewImageBase64 = null,
   },
   ref
 ) {
@@ -511,6 +514,15 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
           segments.length > 0 ? "rounded-t-xl" : "rounded-xl"
         }`}
       >
+        {previewImageBase64 && !hasStartedPlayback && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={`data:image/png;base64,${previewImageBase64}`}
+            alt="Preview"
+            className="absolute inset-0 w-full h-full object-cover z-[5] pointer-events-none"
+            aria-hidden
+          />
+        )}
         {segments.length > 0 && !isPlaying && (
           <button
             type="button"

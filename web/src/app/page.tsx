@@ -50,6 +50,8 @@ export default function Home() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [showStory, setShowStory] = useState(false);
   const [storyHtml, setStoryHtml] = useState("");
+  const [previewImageBase64, setPreviewImageBase64] = useState("");
+  const [illustrationImageBase64, setIllustrationImageBase64] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const styleElRef = useRef<HTMLStyleElement | null>(null);
@@ -78,6 +80,10 @@ export default function Home() {
       onNarration: setNarration,
       onRawJson: () => {},
       onStoryHtml: setStoryHtml,
+      onVisuals: (preview: string, illustration: string) => {
+        setPreviewImageBase64(preview);
+        setIllustrationImageBase64(illustration);
+      },
       onError: setError,
       onLoading: setLoading,
       onStage: setStage,
@@ -145,6 +151,8 @@ export default function Home() {
     setError(null);
     setDisplayedCode("");
     setStoryHtml("");
+    setPreviewImageBase64("");
+    setIllustrationImageBase64("");
     if (inputTab === "code") {
       runStream("", "", narrationLanguage, userCode.trim());
     } else {
@@ -434,13 +442,14 @@ export default function Home() {
                   loading={loading}
                   streamEndedRef={streamEndedRef}
                   audio={{ playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs }}
+                  previewImageBase64={previewImageBase64 || null}
                 />
 
                 {sessionId && storyHtml && (
-                  <div className="mt-4">
+                  <div className="mt-4 flex flex-col gap-3">
                     <Link
                       href={`/story/${sessionId}`}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-800/70 border border-zinc-700/60 text-zinc-200 hover:text-white hover:border-zinc-500 text-sm font-medium transition-colors"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-800/70 border border-zinc-700/60 text-zinc-200 hover:text-white hover:border-zinc-500 text-sm font-medium transition-colors self-start"
                     >
                       View story
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -449,6 +458,16 @@ export default function Home() {
                         <line x1="10" y1="14" x2="21" y2="3" />
                       </svg>
                     </Link>
+                    {illustrationImageBase64 && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={`data:image/png;base64,${illustrationImageBase64}`}
+                        alt="Article illustration"
+                        className="rounded-xl border border-zinc-800/70 w-full max-w-[640px]"
+                        width={640}
+                        height={480}
+                      />
+                    )}
                   </div>
                 )}
 

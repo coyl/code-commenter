@@ -12,6 +12,7 @@ export type StreamEvent =
   | { type: "code_done"; code: string; codePlain: string; rawJson?: string }
   | { type: "session"; id: string }
   | { type: "story"; storyHtml: string }
+  | { type: "visuals"; previewImageBase64: string; illustrationImageBase64: string }
   | { type: "error"; error: string };
 
 export type StreamEventType = StreamEvent["type"];
@@ -38,6 +39,7 @@ export function isStreamEvent(msg: unknown): msg is StreamEvent {
     "code_done",
     "session",
     "story",
+    "visuals",
     "error",
   ].includes(t);
 }

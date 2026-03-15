@@ -145,7 +145,42 @@ export default function JobPage() {
         displayedCode={displayedCode}
         onDisplayedCodeChange={setDisplayedCode}
         jobId={id}
+        previewImageBase64={job.previewImageBase64 || null}
       />
+
+      {(job.previewImageBase64 || job.illustrationImageBase64) && (
+        <div className="mt-6 flex flex-col gap-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Generated visuals</h2>
+          <div className="flex flex-wrap gap-4">
+            {job.previewImageBase64 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-zinc-600">Preview thumbnail</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:image/png;base64,${job.previewImageBase64}`}
+                  alt="Video preview thumbnail"
+                  className="rounded-lg border border-zinc-800/70 w-full max-w-[320px]"
+                  width={320}
+                  height={240}
+                />
+              </div>
+            )}
+            {job.illustrationImageBase64 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-zinc-600">Article illustration</span>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:image/png;base64,${job.illustrationImageBase64}`}
+                  alt="Article illustration"
+                  className="rounded-lg border border-zinc-800/70 w-full max-w-[320px]"
+                  width={320}
+                  height={240}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

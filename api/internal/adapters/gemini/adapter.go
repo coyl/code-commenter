@@ -69,6 +69,14 @@ func (a *Adapter) GenerateStory(ctx context.Context, title, spec, language, segm
 	return a.Client.GenerateStory(ctx, title, spec, language, segmentNarrations)
 }
 
+func (a *Adapter) GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (ports.JobImages, error) {
+	preview, illustration, err := a.Client.GenerateImages(ctx, title, spec, language, segmentNarrations)
+	return ports.JobImages{
+		PreviewImageBase64:      preview,
+		IllustrationImageBase64: illustration,
+	}, err
+}
+
 func (a *Adapter) GenerateAudioChunks(ctx context.Context, narration string) ([]string, error) {
 	chunks := make([]string, 0, 32)
 	err := a.Client.GenerateAudioStream(ctx, a.TTSModel, narration, func(base64Chunk string) error {

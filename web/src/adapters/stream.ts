@@ -38,6 +38,14 @@ export function parseMessage(data: string): StreamEvent | null {
         return { type: "session", id: msg.id ?? "" };
       case "story":
         return { type: "story", storyHtml: typeof (msg as { storyHtml?: unknown }).storyHtml === "string" ? (msg as { storyHtml: string }).storyHtml : "" };
+      case "visuals": {
+        const v = msg as { previewImageBase64?: unknown; illustrationImageBase64?: unknown };
+        return {
+          type: "visuals",
+          previewImageBase64: typeof v.previewImageBase64 === "string" ? v.previewImageBase64 : "",
+          illustrationImageBase64: typeof v.illustrationImageBase64 === "string" ? v.illustrationImageBase64 : "",
+        };
+      }
       case "error":
         return { type: "error", error: msg.error ?? "Stream error" };
       default:

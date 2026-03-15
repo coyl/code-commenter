@@ -38,6 +38,12 @@ func (f fakeGeneration) GenerateTitle(context.Context, string, string) (string, 
 func (f fakeGeneration) GenerateStory(context.Context, string, string, string, string) (string, error) {
 	return "<p>Intro</p>\n{{EMBED_PLAYER}}\n<p>Outro</p>", nil
 }
+func (f fakeGeneration) GenerateImages(context.Context, string, string, string, string) (ports.JobImages, error) {
+	return ports.JobImages{
+		PreviewImageBase64:      "fake-preview",
+		IllustrationImageBase64: "fake-illustration",
+	}, nil
+}
 
 type inspectingGeneration struct {
 	fakeGeneration
@@ -53,6 +59,10 @@ func (g *inspectingGeneration) GenerateTitle(ctx context.Context, spec, prompt s
 func (g *inspectingGeneration) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error) {
 	_, g.storyHadDeadline = ctx.Deadline()
 	return g.fakeGeneration.GenerateStory(ctx, title, spec, language, segmentNarrations)
+}
+
+func (g *inspectingGeneration) GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (ports.JobImages, error) {
+	return g.fakeGeneration.GenerateImages(ctx, title, spec, language, segmentNarrations)
 }
 
 type fakeAudio struct {
@@ -96,7 +106,7 @@ func (f *fakeSessions) Get(string) *ports.SessionData {
 
 type fakeJobs struct{ enabled bool }
 
-func (fakeJobs) UploadJob(context.Context, string, string, string, string, string, string, string, string, string, string, string, []ports.JobSegment, [][]byte) error {
+func (fakeJobs) UploadJob(_ context.Context, _, _, _, _, _, _, _, _, _, _, _ string, _ ports.JobImages, _ []ports.JobSegment, _ [][]byte) error {
 	return nil
 }
 func (fakeJobs) GetJob(context.Context, string) (interface{}, error) {
@@ -109,7 +119,7 @@ type inspectingJobs struct {
 	uploadHadDeadline bool
 }
 
-func (j *inspectingJobs) UploadJob(ctx context.Context, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ string, _ []ports.JobSegment, _ [][]byte) error {
+func (j *inspectingJobs) UploadJob(ctx context.Context, _, _, _, _, _, _, _, _, _, _, _ string, _ ports.JobImages, _ []ports.JobSegment, _ [][]byte) error {
 	_, j.uploadHadDeadline = ctx.Deadline()
 	return nil
 }
@@ -161,7 +171,8 @@ func TestOrchestratorEmitsCompatibleOrder(t *testing.T) {
 		t.Fatalf("expected at least 7 events, got %d", len(sink.events))
 	}
 	// Event order must include these types in order (stage events may appear in between).
-	wantOrder := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "session", "story"}
+	// story and visuals are delivered before session so the client receives all assets first.
+	wantOrder := []string{"job_started", "spec", "css", "segment", "audio", "code_done", "story", "visuals", "session"}
 	idx := 0
 	for _, e := range sink.events {
 		if idx < len(wantOrder) && e.Type == wantOrder[idx] {

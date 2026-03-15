@@ -326,13 +326,6 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		Narration: "",
 	})
 
-	// Emit session (permalink) immediately so the client can show it before any long persistence work.
-	// If we waited until after title/story/upload, WebSocket timeouts or client disconnect would
-	// cause Emit to fail and we could return before UploadJob, silently losing the job.
-	if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
-		return "", err
-	}
-
 	if o.Jobs != nil && o.Jobs.IsEnabled() && jobID != "" {
 		jobPrompt := req.Task
 		if userCodeMode {
@@ -351,19 +344,42 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			title = truncateRunesWithEllipsis(title, 60)
 		}
 
-		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating story"}))
 		storyNarrations := segmentNarrationsSummary(segments, 3000)
+
+		// Story and visuals are best-effort: log on emit failure but always reach UploadJob.
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating story"}))
 		storyHTML, storyErr := o.Generation.GenerateStory(persistCtx, title, spec, req.Language, storyNarrations)
 		if storyErr != nil {
 			log.Error().Err(storyErr).Str("job", jobID).Msg("story generation failed")
 			storyHTML = ""
 		} else if storyHTML != "" {
-			// Best-effort: if WebSocket is already closed, log and continue so we always reach UploadJob.
-			if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "story", StoryHTML: storyHTML})); err != nil {
-				log.Warn().Err(err).Str("job", jobID).Msg("story emit failed; continuing to upload job")
+			if emitErr := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "story", StoryHTML: storyHTML})); emitErr != nil {
+				log.Warn().Err(emitErr).Str("job", jobID).Msg("story emit failed; continuing")
 			} else {
 				log.Info().Str("phase", "story").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
 			}
+		}
+
+		_ = sink.Emit(o.event(jobID, ports.StreamEvent{Type: "stage", Stage: "Generating visuals"}))
+		images, imgErr := o.Generation.GenerateImages(persistCtx, title, spec, req.Language, storyNarrations)
+		if imgErr != nil {
+			log.Error().Err(imgErr).Str("job", jobID).Msg("image generation failed")
+		} else if images.PreviewImageBase64 != "" || images.IllustrationImageBase64 != "" {
+			if emitErr := sink.Emit(o.event(jobID, ports.StreamEvent{
+				Type:                    "visuals",
+				PreviewImageBase64:      images.PreviewImageBase64,
+				IllustrationImageBase64: images.IllustrationImageBase64,
+			})); emitErr != nil {
+				log.Warn().Err(emitErr).Str("job", jobID).Msg("visuals emit failed; continuing")
+			} else {
+				log.Info().Str("phase", "visuals").Dur("elapsed", time.Since(streamStart)).Msg("stream task")
+			}
+		}
+
+		// Session is emitted after story + visuals so the client receives all assets before closing.
+		// If the WebSocket is already gone the error is ignored so UploadJob still runs.
+		if emitErr := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); emitErr != nil {
+			log.Warn().Err(emitErr).Str("job", jobID).Msg("session emit failed; continuing to upload job")
 		}
 
 		storedSegments := make([]ports.JobSegment, 0, len(aligned)+1)
@@ -397,7 +413,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			ownerSub, ownerEmail = req.Owner.Sub, req.Owner.Email
 		}
 		uploadCtx, cancelUpload := context.WithTimeout(persistCtx, s3UploadTimeout)
-		upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, ownerSub, ownerEmail, storyHTML, storedSegments, segmentAudio)
+		upErr := o.Jobs.UploadJob(uploadCtx, jobID, jobPrompt, rawSegmentsJSON, fullHTML.String(), codePlain, css, title, req.NarrationLanguage, ownerSub, ownerEmail, storyHTML, images, storedSegments, segmentAudio)
 		cancelUpload()
 		if upErr != nil {
 			ev := log.Error().Err(upErr).Str("job", jobID).Dur("timeout", s3UploadTimeout)
@@ -406,6 +422,11 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 			} else {
 				ev.Msg("S3 upload failed")
 			}
+		}
+	} else {
+		// No job storage: emit session so the client gets the permalink and can close the stream.
+		if err := sink.Emit(o.event(jobID, ports.StreamEvent{Type: "session", ID: id})); err != nil {
+			return "", err
 		}
 	}
 

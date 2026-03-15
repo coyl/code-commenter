@@ -99,6 +99,17 @@ export default function StoryPage() {
           {title}
         </h1>
 
+        {job.illustrationImageBase64 && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={`data:image/png;base64,${job.illustrationImageBase64}`}
+            alt="Article illustration"
+            className="rounded-xl border border-zinc-800/70 w-full mb-10"
+            width={640}
+            height={480}
+          />
+        )}
+
         <article
           className="prose-story"
           dangerouslySetInnerHTML={{ __html: finalHtml }}
