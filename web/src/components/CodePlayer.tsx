@@ -523,7 +523,7 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
             aria-hidden
           />
         )}
-        {segments.length > 0 && !isPlaying && (
+        {segments.length > 0 && !hasStartedPlayback && (
           <button
             type="button"
             onClick={togglePlayPause}
@@ -537,10 +537,11 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
             </span>
           </button>
         )}
-        <pre
-          ref={codeContainerRef}
-          className="p-4 text-sm overflow-y-auto overflow-x-hidden font-mono whitespace-pre-wrap break-words text-zinc-100 flex-1 min-h-0 scrollbar-hide"
-        >
+        <div className="absolute inset-0 z-0 flex flex-col min-h-0">
+          <pre
+            ref={codeContainerRef}
+            className="code-view-scroll h-full min-h-0 p-4 text-sm overflow-y-auto overflow-x-hidden font-mono whitespace-pre-wrap break-words text-zinc-100 scrollbar-hide"
+          >
           {segments.length > 0 ? (
             <>
               {!hasStartedPlayback ? null : segments.map((_, i) => {
@@ -577,7 +578,8 @@ const CodePlayer = forwardRef<CodePlayerRef, CodePlayerProps>(function CodePlaye
               )}
             </>
           )}
-        </pre>
+          </pre>
+        </div>
       </div>
       {segments.length > 0 && (
         <div className="rounded-b-xl bg-zinc-900/95 border-t border-zinc-800/60 px-3 py-2.5">

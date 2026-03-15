@@ -94,6 +94,14 @@ body {
   display: none;
 }
 
+/* Code player viewport: scrollable and selectable when playback is paused */
+.code-view-scroll {
+  -webkit-overflow-scrolling: touch;
+  overflow-anchor: auto;
+  user-select: text;
+  touch-action: pan-y;
+}
+
 /* Fallback syntax highlight (backend may override via #dynamic-theme) */
 #code-view .token-keyword    { color: #22d3ee; }
 #code-view .token-string     { color: #a3e635; }
