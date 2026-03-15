@@ -81,10 +81,12 @@ type JobMeta struct {
 	CreatedAt int64  `json:"createdAt"`
 }
 
-// JobIndex stores job metadata for listing by owner. Optional; used for GET /jobs/mine.
+// JobIndex stores job metadata for listing by owner. Optional; used for GET /jobs/mine and GET /jobs/recent.
 type JobIndex interface {
 	Add(ctx context.Context, jobID, ownerSub, ownerEmail, title string) error
 	ListByOwner(ctx context.Context, ownerSub string, limit int) ([]JobMeta, error)
+	// ListRecent returns the most recently created jobs across all owners, newest first.
+	ListRecent(ctx context.Context, limit int) ([]JobMeta, error)
 }
 
 // DailyQuota limits generations per user per day. When auth is enabled, stream handler uses TryConsumeSlot before run and ReleaseSlot on failure.

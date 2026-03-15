@@ -28,6 +28,10 @@ export default function JobCarousel({ api = fetchApiAdapter }: Props) {
   const items = Array.from({ length: copies * jobs.length }, (_, i) => jobs[i % jobs.length]);
 
   return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-2.5">
+        Recent walkthroughs
+      </p>
     <div className="relative overflow-hidden">
       {/* Left edge fade */}
       <div
@@ -74,6 +78,7 @@ export default function JobCarousel({ api = fetchApiAdapter }: Props) {
           </Link>
         ))}
       </div>
+    </div>
     </div>
   );
 }

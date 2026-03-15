@@ -9,15 +9,12 @@ import (
 	"io"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
-
-	"code-commenter/api/internal/ports"
 )
 
 // Client reads and writes job data to S3. If bucket is empty, all operations no-op.
@@ -232,88 +229,3 @@ func (c *Client) get(ctx context.Context, key string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// ListRecent returns the most recent limit jobs from S3, ordered newest-first.
-// Job IDs are UUIDv7, so lexicographic order equals chronological order; we page
-// through all common prefixes and take the last `limit` entries.
-// result.json for each job is fetched concurrently to retrieve the title.
-func (c *Client) ListRecent(ctx context.Context, limit int) ([]ports.JobMeta, error) {
-	if c.bucket == "" || c.client == nil {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = 20
-	}
-
-	// Collect all top-level common prefixes (one per job directory).
-	var prefixes []string
-	var contToken *string
-	for {
-		resp, err := c.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:            aws.String(c.bucket),
-			Delimiter:         aws.String("/"),
-			MaxKeys:           aws.Int32(1000),
-			ContinuationToken: contToken,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("list objects: %w", err)
-		}
-		for _, p := range resp.CommonPrefixes {
-			if p.Prefix != nil {
-				prefixes = append(prefixes, *p.Prefix)
-			}
-		}
-		if resp.IsTruncated == nil || !*resp.IsTruncated || resp.NextContinuationToken == nil {
-			break
-		}
-		contToken = resp.NextContinuationToken
-	}
-
-	// Take the last `limit` entries (most recent, since UUIDv7 sorts chronologically).
-	if len(prefixes) > limit {
-		prefixes = prefixes[len(prefixes)-limit:]
-	}
-
-	// Reverse so the newest appears first.
-	for i, j := 0, len(prefixes)-1; i < j; i, j = i+1, j-1 {
-		prefixes[i], prefixes[j] = prefixes[j], prefixes[i]
-	}
-
-	// Fetch result.json for each prefix concurrently, preserving order.
-	type slot struct {
-		meta ports.JobMeta
-		ok   bool
-	}
-	slots := make([]slot, len(prefixes))
-	var wg sync.WaitGroup
-	for i, prefix := range prefixes {
-		i, prefix := i, prefix
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			id := strings.TrimSuffix(prefix, "/")
-			body, err := c.get(ctx, prefix+"result.json")
-			if err != nil {
-				log.Debug().Err(err).Str("prefix", prefix).Msg("list recent: get result.json")
-				return
-			}
-			var res ResultStored
-			if err := json.Unmarshal(body, &res); err != nil {
-				return
-			}
-			title := res.Title
-			if title == "" {
-				title = id
-			}
-			slots[i] = slot{meta: ports.JobMeta{ID: id, Title: title}, ok: true}
-		}()
-	}
-	wg.Wait()
-
-	out := make([]ports.JobMeta, 0, len(slots))
-	for _, s := range slots {
-		if s.ok {
-			out = append(out, s.meta)
-		}
-	}
-	return out, nil
-}

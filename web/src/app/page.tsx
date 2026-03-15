@@ -285,11 +285,8 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* Recent walkthroughs carousel */}
+                {/* Recent walkthroughs carousel — renders nothing when index is unconfigured */}
                 <div className="anim-in-d3">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-2.5">
-                    Recent walkthroughs
-                  </p>
                   <JobCarousel />
                 </div>
               </div>
