@@ -110,10 +110,9 @@ body {
   cursor: not-allowed;
 }
 
-/* ── Sidebar: desktop width via CSS var ───────────────────────── */
+/* ── Sidebar: width from Tailwind (md:w-12 / md:w-[264px]); transition for collapse ── */
 @media (min-width: 768px) {
   .jobs-sidebar {
-    width: var(--sidebar-w, 264px);
     transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 }
