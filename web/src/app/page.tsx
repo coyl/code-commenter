@@ -67,7 +67,6 @@ export default function Home() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [storyHtml, setStoryHtml] = useState("");
   const [previewImageBase64, setPreviewImageBase64] = useState("");
-  const [illustrationImageBase64, setIllustrationImageBase64] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [featureTooltip, setFeatureTooltip] = useState<{ label: string; description: string } | null>(null);
@@ -111,9 +110,8 @@ export default function Home() {
       onNarration: setNarration,
       onRawJson: () => {},
       onStoryHtml: setStoryHtml,
-      onVisuals: (preview: string, illustration: string) => {
+      onVisuals: (preview: string) => {
         setPreviewImageBase64(preview);
-        setIllustrationImageBase64(illustration);
       },
       onError: setError,
       onLoading: setLoading,
@@ -246,7 +244,6 @@ export default function Home() {
     setDisplayedCode("");
     setStoryHtml("");
     setPreviewImageBase64("");
-    setIllustrationImageBase64("");
     if (inputTab === "code") {
       runStream("", "", narrationLanguage, userCode.trim());
     } else {
