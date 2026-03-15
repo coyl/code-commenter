@@ -11,4 +11,6 @@ export type ApiPort = {
   /** Returns user and whether auth is configured. When authConfigured is false, allow unauthenticated use and hide jobs list. */
   getMe(): Promise<GetMeResult>;
   listMyJobs(limit?: number): Promise<JobMeta[]>;
+  /** Returns the most recently created public jobs (title + id). No auth required. */
+  listRecentJobs(limit?: number): Promise<JobMeta[]>;
 };

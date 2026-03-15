@@ -11,6 +11,7 @@ import { useStreamTask } from "@/features/stream/useStreamTask";
 import { useAuth } from "@/features/auth/useAuth";
 import JobsSidebar from "@/components/JobsSidebar";
 import GoogleSignInButton from "@/components/GoogleSignInButton";
+import JobCarousel from "@/components/JobCarousel";
 
 type InputTab = "task" | "code";
 
@@ -22,7 +23,14 @@ const NARRATION_LANGUAGES = [
   { value: "chinese", label: "Chinese (Simplified)" },
 ] as const;
 
-/** Max characters for the "Your code" paste input (enforced on client; backend truncates segment summary for wrapping narration). */
+const FEATURE_CHIPS = [
+  "Typing animations",
+  "AI voiceover",
+  "Shareable player",
+  "Multi-language",
+];
+
+/** Max characters for the "Your code" paste input. */
 const MAX_USER_CODE_LENGTH = 5_000;
 
 export default function Home() {
@@ -42,7 +50,6 @@ export default function Home() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [showStory, setShowStory] = useState(false);
   const [storyHtml, setStoryHtml] = useState("");
-  // Default sidebar open on desktop, closed on mobile
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const styleElRef = useRef<HTMLStyleElement | null>(null);
@@ -52,7 +59,6 @@ export default function Home() {
   const { playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs } = usePCMPlayer();
   const { user, loading: authLoading, authConfigured, signInUrl, signOutUrl, quotaRemaining, refetch: refetchAuth } = useAuth();
 
-  // Open sidebar by default on desktop
   useEffect(() => {
     if (typeof window !== "undefined" && window.innerWidth >= 768) {
       setSidebarOpen(true);
@@ -75,12 +81,8 @@ export default function Home() {
       onError: setError,
       onLoading: setLoading,
       onStage: setStage,
-      onStreamEnded: (ended: boolean) => {
-        streamEndedRef.current = ended;
-      },
-      onNewSegmentIndex: (idx: number | null) => {
-        newSegmentIndexRef.current = idx;
-      },
+      onStreamEnded: (ended: boolean) => { streamEndedRef.current = ended; },
+      onNewSegmentIndex: (idx: number | null) => { newSegmentIndexRef.current = idx; },
       stopAudio,
       unlockAudio,
     }),
@@ -88,16 +90,12 @@ export default function Home() {
   );
   const { runStream } = useStreamTask(streamCallbacks);
 
-  const clearAllErrors = () => setError(null);
-
   useEffect(() => {
     let unlocked = false;
     const primeAudio = () => {
       if (unlocked) return;
       unlocked = true;
-      Promise.resolve(unlockAudio()).catch(() => {
-        unlocked = false;
-      });
+      Promise.resolve(unlockAudio()).catch(() => { unlocked = false; });
     };
     window.addEventListener("pointerdown", primeAudio, { passive: true });
     window.addEventListener("touchstart", primeAudio, { passive: true });
@@ -128,7 +126,6 @@ export default function Home() {
     if (segments.length > idx) codePlayerRef.current?.playSegment(idx);
   }, [segments]);
 
-  // After successful generation, session event fires before backend finishes writing to job index; refetch jobs list and quota after a delay.
   useEffect(() => {
     if (!sessionId || !authConfigured) return;
     const t = setTimeout(() => {
@@ -145,7 +142,7 @@ export default function Home() {
     if (quotaExhausted) return;
     if (inputTab === "task" && !task.trim()) return;
     if (inputTab === "code" && !userCode.trim()) return;
-    clearAllErrors();
+    setError(null);
     setDisplayedCode("");
     setStoryHtml("");
     if (inputTab === "code") {
@@ -155,13 +152,20 @@ export default function Home() {
     }
   };
 
-  const displayError = error;
   const showAuthOverlay = !authLoading && authConfigured && !user && !!signInUrl;
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-950">
+    <div className="flex flex-col min-h-screen">
+      {/* ── Ambient background glows ─────────────────────────────── */}
+      <div className="pointer-events-none fixed inset-0" aria-hidden>
+        <div className="absolute -top-[20%] -right-[10%] w-[640px] h-[640px] rounded-full bg-cyan-500/[0.055] blur-[130px]" />
+        <div className="absolute -bottom-[20%] -left-[10%] w-[520px] h-[520px] rounded-full bg-indigo-500/[0.04] blur-[110px]" />
+      </div>
+
       {/* ── Sticky top header ─────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 flex-shrink-0 border-b border-zinc-800/70 bg-zinc-950/95 backdrop-blur-md">
+      <header className="sticky top-0 z-40 flex-shrink-0 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-md">
+        {/* Subtle gradient accent line at the very top */}
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent" aria-hidden />
         <div className="flex h-14 items-center justify-between gap-4 px-4 md:px-6">
           {/* Left: mobile sidebar hamburger + logo */}
           <div className="flex items-center gap-3">
@@ -183,7 +187,12 @@ export default function Home() {
                 )}
               </button>
             )}
-            <a href="/" className="flex items-center gap-2 select-none">
+            <a href="/" className="flex items-center gap-2 select-none group">
+              {/* Code brackets icon */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400 group-hover:text-cyan-300 transition-colors" aria-hidden>
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
+              </svg>
               <span className="text-base font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-sky-300 bg-clip-text text-transparent">
                 Anee Explainee
               </span>
@@ -193,13 +202,10 @@ export default function Home() {
           {/* Right: auth controls */}
           <div className="flex items-center gap-2">
             {authLoading ? (
-              <span className="text-zinc-600 text-sm">…</span>
+              <span className="text-zinc-700 text-sm">…</span>
             ) : user ? (
               <>
-                <span
-                  className="hidden sm:block text-zinc-500 text-sm truncate max-w-[180px]"
-                  title={user.email}
-                >
+                <span className="hidden sm:block text-zinc-500 text-sm truncate max-w-[180px]" title={user.email}>
                   {user.email}
                 </span>
                 {quotaRemaining !== undefined && (
@@ -210,10 +216,7 @@ export default function Home() {
                 {signOutUrl && (
                   <button
                     type="button"
-                    onClick={() => {
-                      clearSessionToken();
-                      window.location.href = signOutUrl;
-                    }}
+                    onClick={() => { clearSessionToken(); window.location.href = signOutUrl; }}
                     className="px-2.5 py-1 rounded-md text-zinc-500 hover:text-zinc-200 text-sm hover:bg-zinc-800 transition-colors"
                   >
                     Sign out
@@ -244,24 +247,61 @@ export default function Home() {
         )}
 
         <main className="flex-1 min-w-0 overflow-y-auto relative">
-          <div className="max-w-4xl mx-auto px-4 py-6 md:px-6 md:py-8">
+          <div className="max-w-4xl mx-auto px-4 py-6 md:px-6 md:py-10">
 
-            {/* Page intro — visible when no output is shown yet */}
+            {/* ── Hero ───────────────────────────────────────────── */}
             {!css && !code && !loading && (
-              <div className="mb-7">
-                <h1 className="text-xl font-semibold text-zinc-100 mb-1.5">
-                  Generate a code walkthrough
+              <div className="mb-9">
+                {/* Eyebrow badge */}
+                <div className="anim-in inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold tracking-wide mb-5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" aria-hidden />
+                  AI-powered code walkthroughs
+                </div>
+
+                {/* Headline */}
+                <h1 className="anim-in-d1 text-3xl sm:text-4xl font-bold mb-4 leading-[1.18] tracking-tight">
+                  <span className="text-zinc-100">Turn any coding task into</span>
+                  <br className="hidden sm:block" />
+                  {" "}
+                  <span className="bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-400 bg-clip-text text-transparent">
+                    a live walkthrough
+                  </span>
                 </h1>
-                <p className="text-sm text-zinc-500 leading-relaxed">
-                  Describe a coding task and get an interactive player with step-by-step typing animations and voiceover narration.
+
+                {/* Sub-headline */}
+                <p className="anim-in-d2 text-zinc-400 text-base leading-relaxed mb-7 max-w-lg">
+                  Describe a task and get an interactive player with step-by-step typing animations and AI voiceover narration.
                 </p>
+
+                {/* Feature chips */}
+                <div className="anim-in-d2 flex flex-wrap gap-2 mb-8">
+                  {FEATURE_CHIPS.map((label) => (
+                    <span
+                      key={label}
+                      className="inline-flex items-center px-3 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/50 text-zinc-400 text-xs"
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Recent walkthroughs carousel */}
+                <div className="anim-in-d3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-2.5">
+                    Recent walkthroughs
+                  </p>
+                  <JobCarousel />
+                </div>
               </div>
             )}
 
             {/* ── Input form ──────────────────────────────────────── */}
-            <section className="mb-6 rounded-xl bg-zinc-900/70 border border-zinc-800 shadow-lg shadow-black/20">
+            <section className="anim-in-d4 mb-6 relative rounded-xl border border-zinc-800/80 bg-zinc-900/60 shadow-[0_0_0_1px_rgba(6,182,212,0.06),0_8px_32px_rgba(0,0,0,0.35)] backdrop-blur-sm">
+              {/* Gradient top-edge glow */}
+              <div className="absolute inset-x-0 top-0 h-px rounded-t-xl bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent" aria-hidden />
+
               {/* Tab row */}
-              <div className="flex gap-1 p-3 border-b border-zinc-800/70">
+              <div className="flex gap-1 p-3 border-b border-zinc-800/60">
                 <button
                   type="button"
                   onClick={() => setInputTab("task")}
@@ -287,15 +327,13 @@ export default function Home() {
               </div>
 
               <div className="p-4">
-                {/* Input label */}
                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
                   {inputTab === "task" ? "Task description" : "Paste your code"}
                 </label>
 
-                {/* Input area */}
                 {inputTab === "task" ? (
                   <textarea
-                    className="w-full h-24 px-3 py-2.5 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-100 placeholder-zinc-600 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/40 resize-none transition-colors"
+                    className="w-full h-24 px-3 py-2.5 rounded-lg bg-zinc-800/70 border border-zinc-700/50 text-zinc-100 placeholder-zinc-600 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/30 resize-none transition-colors"
                     placeholder="e.g. A React counter component with increment and decrement buttons"
                     value={task}
                     onChange={(e) => setTask(e.target.value)}
@@ -303,7 +341,7 @@ export default function Home() {
                 ) : (
                   <div>
                     <textarea
-                      className="w-full h-44 px-3 py-2.5 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-100 placeholder-zinc-600 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/40 resize-none transition-colors"
+                      className="w-full h-44 px-3 py-2.5 rounded-lg bg-zinc-800/70 border border-zinc-700/50 text-zinc-100 placeholder-zinc-600 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/30 resize-none transition-colors"
                       placeholder="Paste your code here. It will be formatted and split into segments for interactive narration."
                       value={userCode}
                       maxLength={MAX_USER_CODE_LENGTH}
@@ -311,9 +349,7 @@ export default function Home() {
                     />
                     <p
                       className={`mt-1.5 text-right text-xs tabular-nums ${
-                        userCode.length >= MAX_USER_CODE_LENGTH
-                          ? "text-amber-400"
-                          : "text-zinc-600"
+                        userCode.length >= MAX_USER_CODE_LENGTH ? "text-amber-400" : "text-zinc-600"
                       }`}
                       aria-live="polite"
                     >
@@ -322,13 +358,13 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Controls row — stacks vertically on mobile */}
+                {/* Controls — stacks on mobile, inline on sm+ */}
                 <div className="flex flex-col gap-2 mt-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
                   {inputTab === "task" && (
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
                       <label className="text-xs text-zinc-500 sm:hidden">Language</label>
                       <select
-                        className="w-full sm:w-auto rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/60 transition-colors"
+                        className="w-full sm:w-auto rounded-lg bg-zinc-800/70 border border-zinc-700/50 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-colors"
                         value={language}
                         onChange={(e) => setLanguage(e.target.value)}
                         aria-label="Programming language"
@@ -346,15 +382,13 @@ export default function Home() {
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
                     <label className="text-xs text-zinc-500 sm:hidden">Narration language</label>
                     <select
-                      className="w-full sm:w-auto rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/60 transition-colors"
+                      className="w-full sm:w-auto rounded-lg bg-zinc-800/70 border border-zinc-700/50 text-zinc-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 transition-colors"
                       value={narrationLanguage}
                       onChange={(e) => setNarrationLanguage(e.target.value)}
                       aria-label="Narration language"
                     >
                       {NARRATION_LANGUAGES.map(({ value, label }) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
+                        <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
                   </div>
@@ -362,10 +396,10 @@ export default function Home() {
                   <button
                     onClick={submitTaskStream}
                     disabled={loading || (authConfigured && !user) || !!quotaExhausted}
-                    className={`w-full sm:w-auto mt-1 sm:mt-0 sm:ml-auto px-5 py-2 rounded-lg text-white text-sm font-semibold transition-colors ${
+                    className={`w-full sm:w-auto mt-1 sm:mt-0 sm:ml-auto px-6 py-2 rounded-lg text-white text-sm font-semibold ${
                       quotaExhausted
                         ? "bg-zinc-700 text-zinc-500 cursor-not-allowed"
-                        : "bg-cyan-600 hover:bg-cyan-500 active:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm shadow-cyan-900/30"
+                        : "btn-shimmer"
                     }`}
                   >
                     {loading ? "Generating…" : "Generate"}
@@ -384,9 +418,9 @@ export default function Home() {
             {loading && <GenerationProgress stage={stage} />}
 
             {/* ── Error ───────────────────────────────────────────── */}
-            {displayError && (
+            {error && (
               <div className="mb-5 px-4 py-3 rounded-xl bg-red-950/40 border border-red-800/50 text-red-300 text-sm leading-relaxed">
-                {displayError}
+                {error}
               </div>
             )}
 
@@ -405,12 +439,11 @@ export default function Home() {
                   audio={{ playChunk, stop: stopAudio, unlock: unlockAudio, remainingMs }}
                 />
 
-                {/* Story link + collapsible raw story */}
                 {sessionId && storyHtml && (
                   <div className="mt-4">
                     <Link
                       href={`/story/${sessionId}`}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-200 hover:text-white hover:border-zinc-500 text-sm font-medium transition-colors"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-800/70 border border-zinc-700/60 text-zinc-200 hover:text-white hover:border-zinc-500 text-sm font-medium transition-colors"
                     >
                       View story
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -431,10 +464,7 @@ export default function Home() {
                     >
                       <span>Story HTML</span>
                       <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
+                        width="15" height="15" viewBox="0 0 24 24" fill="currentColor"
                         className={`transition-transform duration-200 ${showStory ? "rotate-180" : ""}`}
                       >
                         <path d="M7 10l5 5 5-5z" />
@@ -458,11 +488,13 @@ export default function Home() {
               aria-modal
               aria-label="Sign in required"
             >
-              <div className="bg-zinc-900 border border-zinc-700/80 rounded-2xl p-7 max-w-sm w-full shadow-2xl shadow-black/60 text-center">
+              <div className="relative bg-zinc-900/95 border border-zinc-700/80 rounded-2xl p-7 max-w-sm w-full shadow-2xl shadow-black/70 text-center overflow-hidden">
+                {/* Top glow */}
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-500/40 to-transparent" aria-hidden />
                 <div className="mb-4">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-zinc-800 mb-4">
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-zinc-800 mb-4 shadow-inner">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
                     </svg>
                   </div>
                   <h2 className="text-base font-semibold text-zinc-100 mb-2">Sign in to generate</h2>
