@@ -131,7 +131,6 @@ export function useStreamTask(callbacks: StreamTaskCallbacks) {
           }
           case "story":
             onStoryHtml(event.storyHtml ?? "");
-            onLoading(false);
             break;
           case "visuals":
             onVisuals(event.previewImageBase64 ?? "", event.illustrationImageBase64 ?? "");
