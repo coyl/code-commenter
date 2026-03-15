@@ -479,13 +479,8 @@ func resizeImageTo640x480(data []byte) ([]byte, error) {
 		for x := 0; x < targetW; x++ {
 			srcX := b.Min.X + x*srcW/targetW
 			srcY := b.Min.Y + y*srcH/targetH
-			r, g, ga, a := src.At(srcX, srcY).RGBA()
-			dst.SetNRGBA(x, y, color.NRGBA{
-				R: uint8(r >> 8),
-				G: uint8(g >> 8),
-				B: uint8(ga >> 8),
-				A: uint8(a >> 8),
-			})
+			c := color.NRGBAModel.Convert(src.At(srcX, srcY)).(color.NRGBA)
+			dst.SetNRGBA(x, y, c)
 		}
 	}
 	var buf bytes.Buffer
