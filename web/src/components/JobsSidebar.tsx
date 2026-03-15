@@ -5,9 +5,6 @@ import Link from "next/link";
 import { fetchApiAdapter } from "@/adapters/api";
 import type { JobMeta } from "@/domain/api";
 
-const SIDEBAR_WIDTH_OPEN = 264;
-const SIDEBAR_WIDTH_COLLAPSED = 48;
-
 type JobsSidebarProps = {
   open: boolean;
   onToggle: () => void;
