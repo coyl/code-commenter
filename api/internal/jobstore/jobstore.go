@@ -236,19 +236,3 @@ func (c *Client) get(ctx context.Context, key string) ([]byte, error) {
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
 }
-
-
-// uuidV7CreatedAtMs extracts the Unix millisecond timestamp encoded in a UUIDv7 string.
-// UUIDv7 stores a 48-bit big-endian millisecond timestamp in its first 12 hex digits.
-// Returns 0 if id is not a valid UUIDv7.
-func uuidV7CreatedAtMs(id string) int64 {
-	clean := strings.ReplaceAll(id, "-", "")
-	if len(clean) != 32 || clean[12] != '7' {
-		return 0
-	}
-	ms, err := strconv.ParseUint(clean[:12], 16, 64)
-	if err != nil {
-		return 0
-	}
-	return int64(ms)
-}
