@@ -3,18 +3,81 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f0f12;
-  --foreground: #e4e4e7;
+  --background: #09090b;
+  --foreground: #fafafa;
   --muted: #71717a;
   --accent: #22d3ee;
   --card: #18181b;
   --border: #27272a;
+  --border-bright: #3f3f46;
+  --surface-1: #18181b;
+  --surface-2: #1c1c1f;
+  --surface-3: #27272a;
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  /* Dot-grid texture: sits on top of the solid dark colour */
+  background-color: #09090b;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ── Entrance animations ──────────────────────────────────────── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+.anim-in    { animation: fade-in-up 0.45s ease-out          forwards; }
+.anim-in-d1 { opacity: 0; animation: fade-in-up 0.45s ease-out 0.10s forwards; }
+.anim-in-d2 { opacity: 0; animation: fade-in-up 0.45s ease-out 0.20s forwards; }
+.anim-in-d3 { opacity: 0; animation: fade-in-up 0.45s ease-out 0.32s forwards; }
+.anim-in-d4 { opacity: 0; animation: fade-in-up 0.45s ease-out 0.44s forwards; }
+
+/* ── Job carousel: horizontal marquee ────────────────────────── */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 40s linear infinite;
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+}
+
+/* ── Generate button: gradient shimmer ───────────────────────── */
+.btn-shimmer {
+  background: linear-gradient(110deg, #0e7490 0%, #06b6d4 35%, #38bdf8 65%, #0e7490 100%);
+  background-size: 300% 100%;
+  background-position: 0% center;
+  transition: background-position 0.8s ease, box-shadow 0.25s ease, opacity 0.2s ease;
+}
+.btn-shimmer:hover:not(:disabled) {
+  background-position: 100% center;
+  box-shadow: 0 0 30px rgba(6, 182, 212, 0.5), 0 4px 20px rgba(0, 0, 0, 0.55);
+}
+.btn-shimmer:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Sidebar: desktop width via CSS var ───────────────────────── */
+@media (min-width: 768px) {
+  .jobs-sidebar {
+    width: var(--sidebar-w, 264px);
+    transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
 }
 
 /* Dynamic theme from backend will be injected into #dynamic-theme */
@@ -32,11 +95,11 @@ body {
 }
 
 /* Fallback syntax highlight (backend may override via #dynamic-theme) */
-#code-view .token-keyword { color: #22d3ee; }
-#code-view .token-string { color: #a3e635; }
-#code-view .token-comment { color: #71717a; font-style: italic; }
-#code-view .token-number { color: #fbbf24; }
-#code-view .token-function { color: #c084fc; }
-#code-view .token-operator { color: #94a3b8; }
-#code-view .token-punctuation { color: #94a3b8; }
-#code-view .token-variable { color: #e4e4e7; }
+#code-view .token-keyword    { color: #22d3ee; }
+#code-view .token-string     { color: #a3e635; }
+#code-view .token-comment    { color: #71717a; font-style: italic; }
+#code-view .token-number     { color: #fbbf24; }
+#code-view .token-function   { color: #c084fc; }
+#code-view .token-operator   { color: #94a3b8; }
+#code-view .token-punctuation{ color: #94a3b8; }
+#code-view .token-variable   { color: #e4e4e7; }

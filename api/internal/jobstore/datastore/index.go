@@ -71,6 +71,38 @@ func (i *Index) Add(ctx context.Context, jobID, ownerSub, ownerEmail, title stri
 	return nil
 }
 
+// ListRecent returns the most recently created jobs across all owners, newest first.
+// Uses a single-property descending index on createdAt (auto-created by Datastore).
+func (i *Index) ListRecent(ctx context.Context, limit int) ([]ports.JobMeta, error) {
+	if i == nil || i.client == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	q := datastore.NewQuery(kindJob).
+		Order("-createdAt").
+		Limit(limit)
+	var entities []jobEntity
+	keys, err := i.client.GetAll(ctx, q, &entities)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ports.JobMeta, 0, len(keys))
+	for idx, k := range keys {
+		if k.Name == "" {
+			continue
+		}
+		ent := entities[idx]
+		out = append(out, ports.JobMeta{
+			ID:        k.Name,
+			Title:     ent.Title,
+			CreatedAt: ent.CreatedAt.UnixMilli(),
+		})
+	}
+	return out, nil
+}
+
 // ListByOwner returns jobs for the given owner, newest first.
 // Requires a composite index: kind "Job", ownerSub (Ascending), createdAt (Descending).
 // See api/index.yaml or README.

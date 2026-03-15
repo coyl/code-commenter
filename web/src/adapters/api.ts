@@ -41,4 +41,10 @@ export const fetchApiAdapter: ApiPort = {
     if (!res.ok) throw new Error("Failed to list jobs");
     return parseJson<JobMeta[]>(res);
   },
+  async listRecentJobs(): Promise<JobMeta[]> {
+    const base = await getApiBaseAsync();
+    const res = await fetch(`${base}/jobs/recent`);
+    if (!res.ok) return [];
+    return parseJson<JobMeta[]>(res);
+  },
 };

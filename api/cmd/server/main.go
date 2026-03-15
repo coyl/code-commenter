@@ -134,6 +134,9 @@ func main() {
 	if jobRepository.IsEnabled() {
 		mux.HandleFunc("GET /jobs/{id}", handlers.HandleGetJob(jobRepository))
 	}
+	if jobIndex != nil {
+		mux.HandleFunc("GET /jobs/recent", handlers.HandleListRecentJobs(jobIndex, 20))
+	}
 	mux.HandleFunc("GET /live", handlers.HandleLive(cfg.GeminiAPIKey, cfg.LiveAPIModel))
 
 	// CORS middleware

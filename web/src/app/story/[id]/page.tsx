@@ -19,7 +19,7 @@ function sanitizeStoryHtml(html: string): string {
 
 /** Returns the storyHtml with the marker replaced by an iframe pointing to /embed/{id}. */
 function injectEmbed(storyHtml: string, id: string): string {
-  const iframe = `<div class="story-embed-container"><iframe src="/embed/${encodeURIComponent(id)}" title="Interactive code player" allow="autoplay; clipboard-write" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;display:block;"></iframe></div>`;
+  const iframe = `<div class="story-embed-container"><iframe src="/embed/${encodeURIComponent(id)}" title="Interactive code player" allow="autoplay; clipboard-write" loading="lazy" style="width:100%;height:540px;border:0;border-radius:12px;display:block;"></iframe></div>`;
   return storyHtml.replace(EMBED_PLAYER_MARKER, iframe);
 }
 
@@ -36,19 +36,22 @@ export default function StoryPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen p-6 max-w-3xl mx-auto">
-        <p className="text-zinc-400">Loading story…</p>
+      <main className="min-h-screen bg-zinc-950 px-4 py-10 max-w-3xl mx-auto">
+        <div className="flex items-center gap-3 text-zinc-500 text-sm">
+          <span className="w-4 h-4 rounded-full border-2 border-zinc-600 border-t-cyan-500 animate-spin" />
+          Loading story…
+        </div>
       </main>
     );
   }
 
   if (error || !job) {
     return (
-      <main className="min-h-screen p-6 max-w-3xl mx-auto">
-        <div className="mb-4 p-3 rounded bg-red-900/30 border border-red-700 text-red-200 text-sm">
+      <main className="min-h-screen bg-zinc-950 px-4 py-10 max-w-3xl mx-auto">
+        <div className="mb-5 px-4 py-3 rounded-xl bg-red-950/40 border border-red-800/50 text-red-300 text-sm">
           {error || "Story not found"}
         </div>
-        <Link href="/" className="text-cyan-400 hover:underline text-sm">
+        <Link href="/" className="text-cyan-500/80 hover:text-cyan-400 text-sm transition-colors">
           ← Back to generator
         </Link>
       </main>
@@ -57,12 +60,12 @@ export default function StoryPage() {
 
   if (!finalHtml) {
     return (
-      <main className="min-h-screen p-6 max-w-3xl mx-auto">
-        <div className="mb-4 p-3 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm">
+      <main className="min-h-screen bg-zinc-950 px-4 py-10 max-w-3xl mx-auto">
+        <div className="mb-5 px-4 py-3 rounded-xl bg-zinc-900/60 border border-zinc-800 text-zinc-400 text-sm">
           No story available for this job yet.
         </div>
         {id && (
-          <Link href={`/jobs/${id}`} className="text-cyan-400 hover:underline text-sm">
+          <Link href={`/jobs/${id}`} className="text-cyan-500/80 hover:text-cyan-400 text-sm transition-colors">
             ← Back to job
           </Link>
         )}
@@ -74,24 +77,27 @@ export default function StoryPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <nav className="mb-8 flex items-center gap-4 text-sm">
-          <Link href="/" className="text-zinc-500 hover:text-zinc-300 transition-colors">
-            ← Generator
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 md:py-14">
+        {/* Breadcrumb nav */}
+        <nav className="mb-8 flex items-center gap-2 text-sm" aria-label="Breadcrumb">
+          <Link href="/" className="text-zinc-600 hover:text-zinc-300 transition-colors">
+            Generator
           </Link>
+          <span className="text-zinc-700" aria-hidden>/</span>
           {id && (
             <>
-              <span className="text-zinc-700">/</span>
-              <Link href={`/jobs/${id}`} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+              <Link href={`/jobs/${id}`} className="text-zinc-600 hover:text-zinc-300 transition-colors">
                 Job
               </Link>
+              <span className="text-zinc-700" aria-hidden>/</span>
             </>
           )}
-          <span className="text-zinc-700">/</span>
           <span className="text-zinc-400">Story</span>
         </nav>
 
-        <h1 className="text-2xl font-bold text-white mb-8 leading-snug">{title}</h1>
+        <h1 className="text-2xl md:text-3xl font-bold text-white mb-10 leading-snug tracking-tight">
+          {title}
+        </h1>
 
         <article
           className="prose-story"
@@ -105,40 +111,42 @@ export default function StoryPage() {
           color: #f4f4f5;
           font-weight: 700;
           line-height: 1.3;
-          margin: 2rem 0 0.75rem;
+          letter-spacing: -0.01em;
+          margin: 2.25rem 0 0.875rem;
         }
         .prose-story h1 { font-size: 1.5rem; }
-        .prose-story h2 { font-size: 1.25rem; }
+        .prose-story h2 { font-size: 1.2rem; color: #e4e4e7; }
         .prose-story p {
           color: #a1a1aa;
-          line-height: 1.75;
-          margin: 0 0 1.25rem;
+          line-height: 1.8;
+          margin: 0 0 1.375rem;
+          font-size: 1rem;
         }
         .prose-story ul,
         .prose-story ol {
           color: #a1a1aa;
-          line-height: 1.75;
-          margin: 0 0 1.25rem;
+          line-height: 1.8;
+          margin: 0 0 1.375rem;
           padding-left: 1.5rem;
         }
-        .prose-story li { margin-bottom: 0.25rem; }
+        .prose-story li { margin-bottom: 0.375rem; }
         .prose-story strong { color: #e4e4e7; font-weight: 600; }
         .prose-story em { color: #d4d4d8; }
         .prose-story code {
           background: #27272a;
           border: 1px solid #3f3f46;
-          border-radius: 4px;
-          padding: 0.15em 0.4em;
-          font-size: 0.875em;
+          border-radius: 5px;
+          padding: 0.15em 0.45em;
+          font-size: 0.85em;
           color: #67e8f9;
-          font-family: ui-monospace, monospace;
+          font-family: var(--font-mono, ui-monospace, monospace);
         }
         .story-embed-container {
-          margin: 2.5rem 0;
-          border-radius: 12px;
+          margin: 3rem 0;
+          border-radius: 14px;
           overflow: hidden;
           border: 1px solid #3f3f46;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+          box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
         }
       `}</style>
     </main>

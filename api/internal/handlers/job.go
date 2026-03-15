@@ -38,6 +38,28 @@ func HandleGetJob(store ports.JobRepository) http.HandlerFunc {
 	}
 }
 
+// HandleListRecentJobs returns the most recently created public jobs (GET /jobs/recent).
+// No auth required — only IDs and titles are exposed (no owner info).
+// Only registered when a JobIndex is configured; callers must not pass nil.
+func HandleListRecentJobs(index ports.JobIndex, limit int) http.HandlerFunc {
+	if limit <= 0 {
+		limit = 20
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		jobs, err := index.ListRecent(r.Context(), limit)
+		if err != nil {
+			log.Error().Err(err).Msg("list recent jobs")
+			http.Error(w, "failed to list jobs", http.StatusInternalServerError)
+			return
+		}
+		if jobs == nil {
+			jobs = []ports.JobMeta{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(jobs)
+	}
+}
+
 // HandleListMyJobs returns the current user's jobs (GET /jobs/mine). Requires auth. Query: limit (default 50).
 func HandleListMyJobs(index ports.JobIndex, defaultLimit int) http.HandlerFunc {
 	if defaultLimit <= 0 {
