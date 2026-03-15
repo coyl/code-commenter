@@ -12,5 +12,5 @@ export type ApiPort = {
   getMe(): Promise<GetMeResult>;
   listMyJobs(limit?: number): Promise<JobMeta[]>;
   /** Returns the most recently created public jobs (title + id). No auth required. */
-  listRecentJobs(limit?: number): Promise<JobMeta[]>;
+  listRecentJobs(): Promise<JobMeta[]>;
 };

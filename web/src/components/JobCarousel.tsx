@@ -15,7 +15,7 @@ export default function JobCarousel({ api = fetchApiAdapter }: Props) {
 
   useEffect(() => {
     api
-      .listRecentJobs(24)
+      .listRecentJobs()
       .then((j) => setJobs(j.filter((x) => x.title && x.title.trim())))
       .catch(() => setJobs([]));
   }, [api]);
