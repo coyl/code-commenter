@@ -454,19 +454,21 @@ func extractImageBytes(resp *genai.GenerateContentResponse) []byte {
 	return nil
 }
 
-// GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code).
-func (c *Client) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
+// GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code), written in narrationLang.
+func (c *Client) GenerateTitle(ctx context.Context, spec, prompt, narrationLang string) (string, error) {
 	if strings.TrimSpace(prompt) == "" {
 		prompt = spec
 	}
 	if strings.TrimSpace(prompt) == "" {
+		// Default fallback in English; caller can pass narrationLang to get a localized default if needed.
 		return "Code walkthrough", nil
 	}
-	promptText := fmt.Sprintf(`Given the following (a coding task description or a walkthrough of what the code does), output a single short title (3–8 words) that captures the essence. Examples: "React counter with hooks", "Python binary search", "Go HTTP server with middleware". Do not use generic phrases like "Analysis of user provided code". No quotes, no period.
+	narrationLabel := narrationLanguageLabel(narrationLang)
+	promptText := fmt.Sprintf(`Given the following (a coding task description or a walkthrough of what the code does), output a single short title (3–8 words) that captures the essence. Write the title in %s. Examples (if English): "React counter with hooks", "Python binary search", "Go HTTP server with middleware". Do not use generic phrases like "Analysis of user provided code". No quotes, no period.
 
 %s
 
-Output only the title, nothing else.`, prompt)
+Output only the title, nothing else.`, narrationLabel, prompt)
 	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: promptText}}},

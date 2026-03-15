@@ -32,7 +32,7 @@ func (f fakeGeneration) GenerateWrappingNarration(context.Context, string, strin
 func (f fakeGeneration) GenerateWrappingNarrationForUserCode(context.Context, string, string) (string, error) {
 	return "", nil
 }
-func (f fakeGeneration) GenerateTitle(context.Context, string, string) (string, error) {
+func (f fakeGeneration) GenerateTitle(context.Context, string, string, string) (string, error) {
 	return "Test title", nil
 }
 func (f fakeGeneration) GenerateStory(context.Context, string, string, string, string, string) (string, error) {
@@ -51,9 +51,9 @@ type inspectingGeneration struct {
 	storyHadDeadline bool
 }
 
-func (g *inspectingGeneration) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
+func (g *inspectingGeneration) GenerateTitle(ctx context.Context, spec, prompt, narrationLang string) (string, error) {
 	_, g.titleHadDeadline = ctx.Deadline()
-	return g.fakeGeneration.GenerateTitle(ctx, spec, prompt)
+	return g.fakeGeneration.GenerateTitle(ctx, spec, prompt, narrationLang)
 }
 
 func (g *inspectingGeneration) GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (string, error) {

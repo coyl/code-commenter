@@ -42,7 +42,8 @@ type GenerationPort interface {
 	GenerateWrappingNarration(ctx context.Context, spec, language, narrationLang string) (string, error)
 	// GenerateWrappingNarrationForUserCode returns a short closing voiceover for user-pasted code (segmentNarrationsSummary is concatenated segment narrations).
 	GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error)
-	GenerateTitle(ctx context.Context, spec, prompt string) (string, error)
+	// GenerateTitle returns a short title for the job, written in narrationLang.
+	GenerateTitle(ctx context.Context, spec, prompt, narrationLang string) (string, error)
 	// GenerateStory returns an HTML article body (no html/head/body tags) describing the problem and solution.
 	// The text is written in narrationLang (same as the voiceover). The marker {{EMBED_PLAYER}} appears exactly once, mid-article.
 	GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (string, error)

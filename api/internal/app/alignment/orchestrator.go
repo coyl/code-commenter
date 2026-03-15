@@ -338,7 +338,7 @@ func (o *StreamOrchestrator) Run(ctx context.Context, req StreamRequest, sink po
 		if userCodeMode && len(segments) > 0 {
 			titlePrompt = segmentNarrationsSummary(segments, 800)
 		}
-		title, _ := o.Generation.GenerateTitle(persistCtx, spec, titlePrompt)
+		title, _ := o.Generation.GenerateTitle(persistCtx, spec, titlePrompt, req.NarrationLanguage)
 		if title == "" {
 			title = jobPrompt
 			title = truncateRunesWithEllipsis(title, 60)
