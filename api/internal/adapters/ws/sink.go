@@ -46,6 +46,12 @@ func (s Sink) Emit(event ports.StreamEvent) error {
 		return s.Conn.WriteJSON(map[string]interface{}{"type": "session", "id": event.ID})
 	case "story":
 		return s.Conn.WriteJSON(map[string]interface{}{"type": "story", "storyHtml": event.StoryHTML})
+	case "visuals":
+		return s.Conn.WriteJSON(map[string]interface{}{
+			"type":                    "visuals",
+			"previewImageBase64":      event.PreviewImageBase64,
+			"illustrationImageBase64": event.IllustrationImageBase64,
+		})
 	case "error":
 		return s.Conn.WriteJSON(map[string]string{"type": "error", "error": event.Error})
 	default:

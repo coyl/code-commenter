@@ -9,6 +9,7 @@ const STAGE_PERCENT: Record<string, number> = {
   "Generating code segments": 50,
   "Generating voiceover": 75,
   "Generating story": 90,
+  "Generating visuals": 95,
   "Finalizing": 100,
 };
 

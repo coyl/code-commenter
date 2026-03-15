@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	_ "image/jpeg"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -301,8 +303,8 @@ No code snippets, no markdown. Output only the narration text, nothing else.`, s
 
 // GenerateStory returns an HTML article body describing the problem and its solution.
 // The returned HTML contains the marker {{EMBED_PLAYER}} exactly once, positioned mid-article so
-// the frontend can inject an embed iframe there.
-func (c *Client) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (storyHTML string, err error) {
+// the frontend can inject an embed iframe there. The article text is written in narrationLang.
+func (c *Client) GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (storyHTML string, err error) {
 	start := time.Now()
 	defer func() {
 		ev := log.Info().Str("op", "GenerateStory").Dur("dur", time.Since(start))
@@ -312,21 +314,23 @@ func (c *Client) GenerateStory(ctx context.Context, title, spec, language, segme
 		ev.Msg("llm request")
 	}()
 
+	narrationLabel := narrationLanguageLabel(narrationLang)
 	prompt := fmt.Sprintf(`You are a technical writer. Write a short, engaging article about the coding problem below and how it was solved. The article will be published on a developer blog and will have an interactive code player embedded in the middle.
 
 Title: %s
-Language: %s
+Programming language: %s
 Problem/Spec: %s
 How it was solved (segment narrations):
 %s
 
 Rules:
+- Write the ENTIRE article in %s (same language as the voiceover/narration).
 - Write ONLY the HTML body content — no <html>, <head>, or <body> tags, no CSS, no <script>.
 - Use only these tags: <h1>, <h2>, <p>, <ul>, <li>, <strong>, <em>, <code>.
 - Structure: a short intro (1-2 paragraphs) that sets up the problem, then the exact text {{EMBED_PLAYER}} on its own line (this is where the interactive player will be inserted), then a conclusion (1-2 paragraphs) that summarises what was built and what to take away.
 - Keep it concise: roughly 200-350 words total.
 - Do NOT include the actual source code in the article body; the player shows it.
-- Output only the HTML, no markdown code fences, no explanation.`, title, language, spec, segmentNarrations)
+- Output only the HTML, no markdown code fences, no explanation.`, title, language, spec, segmentNarrations, narrationLabel)
 
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
@@ -343,19 +347,128 @@ Rules:
 	return raw, nil
 }
 
-// GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code).
-func (c *Client) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
+const imageModel = "gemini-3.1-flash-image-preview"
+
+func (c *Client) GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (preview, illustration string, err error) {
+	start := time.Now()
+	defer func() {
+		ev := log.Info().Str("op", "GenerateImages").Dur("dur", time.Since(start))
+		if err != nil {
+			ev = log.Error().Err(err).Str("op", "GenerateImages").Dur("dur", time.Since(start))
+		}
+		ev.Msg("llm request")
+	}()
+
+	previewPrompt := fmt.Sprintf(`Create a clean, simple YouTube-style video thumbnail for a developer coding tutorial.
+Title: %s
+Language: %s
+Topic: %s
+
+Rules:
+- Dark background (like a dark IDE theme).
+- Show a bold, clean visual concept for the coding topic — NOT actual code text.
+- Use simple geometric shapes, icons, or abstract design elements that represent the concept.
+- Bold, high-contrast typography for a short (3-5 word) version of the title.
+- Professional, polished look. No clutter. No actual source code text.
+Output only the image.`, title, language, spec)
+
+	illustrationPrompt := fmt.Sprintf(`Create a clean technical diagram or conceptual scheme for this coding solution.
+Title: %s
+Language: %s
+Approach (narration summary): %s
+
+Rules:
+- Dark background with light-colored elements.
+- A clear flowchart, architecture diagram, or concept map — whichever best fits the approach.
+- Simple labeled shapes and arrows. No actual source code.
+- Clean, minimal, educational layout easy to read at a glance.
+Output only the diagram image.`, title, language, segmentNarrations)
+
+	cfg := &genai.GenerateContentConfig{
+		ResponseModalities: []string{"IMAGE"},
+		ImageConfig: &genai.ImageConfig{
+			AspectRatio: "16:9",
+		},
+	}
+
+	type result struct {
+		b64 string
+		err error
+	}
+	var wg sync.WaitGroup
+	prevCh := make(chan result, 1)
+	illustCh := make(chan result, 1)
+
+	generate := func(prompt string, ch chan<- result) {
+		defer wg.Done()
+		resp, e := c.client.Models.GenerateContent(ctx, imageModel, []*genai.Content{
+			{Parts: []*genai.Part{{Text: prompt}}},
+		}, cfg)
+		if e != nil {
+			ch <- result{err: e}
+			return
+		}
+		raw := extractImageBytes(resp)
+		if len(raw) == 0 {
+			ch <- result{err: fmt.Errorf("no image data returned")}
+			return
+		}
+		ch <- result{b64: base64.StdEncoding.EncodeToString(raw)}
+	}
+
+	wg.Add(2)
+	go generate(previewPrompt, prevCh)
+	go generate(illustrationPrompt, illustCh)
+	wg.Wait()
+
+	prevRes := <-prevCh
+	illustRes := <-illustCh
+
+	if prevRes.err != nil && illustRes.err != nil {
+		err = fmt.Errorf("preview: %w; illustration: %v", prevRes.err, illustRes.err)
+		return "", "", err
+	}
+	if prevRes.err != nil {
+		log.Warn().Err(prevRes.err).Msg("preview image generation failed")
+	}
+	if illustRes.err != nil {
+		log.Warn().Err(illustRes.err).Msg("illustration image generation failed")
+	}
+	return prevRes.b64, illustRes.b64, nil
+}
+
+// extractImageBytes pulls the first inline image bytes from a GenerateContent response.
+func extractImageBytes(resp *genai.GenerateContentResponse) []byte {
+	if resp == nil || len(resp.Candidates) == 0 {
+		return nil
+	}
+	c := resp.Candidates[0]
+	if c.Content == nil {
+		return nil
+	}
+	for _, p := range c.Content.Parts {
+		if p.InlineData != nil && len(p.InlineData.Data) > 0 {
+			return p.InlineData.Data
+		}
+	}
+	return nil
+}
+
+// GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code), written in narrationLang.
+func (c *Client) GenerateTitle(ctx context.Context, spec, prompt, narrationLang string) (string, error) {
 	if strings.TrimSpace(prompt) == "" {
 		prompt = spec
 	}
 	if strings.TrimSpace(prompt) == "" {
+		// Default fallback in English; caller can pass narrationLang to get a localized default if needed.
 		return "Code walkthrough", nil
 	}
-	promptText := fmt.Sprintf(`Given the following (a coding task description or a walkthrough of what the code does), output a single short title (3–8 words) that captures the essence. Examples: "React counter with hooks", "Python binary search", "Go HTTP server with middleware". Do not use generic phrases like "Analysis of user provided code". No quotes, no period.
+	narrationLabel := narrationLanguageLabel(narrationLang)
+	promptText := fmt.Sprintf(`Given the following (a coding task description or a walkthrough of what the code does), output a single short title (3–8 words) that captures the essence. Write the title in %s. Examples (if English): "React counter with hooks", "Python binary search", "Go HTTP server with middleware". Do not use generic phrases like "Analysis of user provided code". No quotes, no period.
 
 %s
 
-Output only the title, nothing else.`, prompt)
+Output only the title, nothing else.`, narrationLabel, prompt)
 	start := time.Now()
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: promptText}}},
@@ -615,8 +728,8 @@ func PCMToWAV(pcm []byte, sampleRate int) []byte {
 	binary.LittleEndian.PutUint16(buf[22:24], 1)  // mono
 	binary.LittleEndian.PutUint32(buf[24:28], uint32(sampleRate))
 	binary.LittleEndian.PutUint32(buf[28:32], uint32(sampleRate*2)) // byte rate (16-bit mono)
-	binary.LittleEndian.PutUint16(buf[32:34], 2)                   // block align
-	binary.LittleEndian.PutUint16(buf[34:36], 16)                  // bits per sample
+	binary.LittleEndian.PutUint16(buf[32:34], 2)                    // block align
+	binary.LittleEndian.PutUint16(buf[34:36], 16)                   // bits per sample
 	copy(buf[36:40], "data")
 	binary.LittleEndian.PutUint32(buf[40:44], uint32(dataLen))
 	copy(buf[44:], pcm)

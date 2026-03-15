@@ -17,10 +17,13 @@ function sanitizeStoryHtml(html: string): string {
   return DOMPurify.sanitize(html, { ALLOWED_TAGS: STORY_ALLOWED_TAGS });
 }
 
-/** Returns the storyHtml with the marker replaced by an iframe pointing to /embed/{id}. */
-function injectEmbed(storyHtml: string, id: string): string {
+/** Returns the storyHtml with the marker replaced by an iframe (player) and optional illustration below it. */
+function injectEmbed(storyHtml: string, id: string, illustrationImageBase64: string | undefined): string {
   const iframe = `<div class="story-embed-container"><iframe src="/embed/${encodeURIComponent(id)}" title="Interactive code player" allow="autoplay; clipboard-write" loading="lazy" style="width:100%;height:540px;border:0;border-radius:12px;display:block;"></iframe></div>`;
-  return storyHtml.replace(EMBED_PLAYER_MARKER, iframe);
+  const illustration = illustrationImageBase64
+    ? `<div class="story-illustration"><img src="data:image/png;base64,${illustrationImageBase64}" alt="Article illustration" width="640" height="480" loading="lazy" /></div>`
+    : "";
+  return storyHtml.replace(EMBED_PLAYER_MARKER, iframe + illustration);
 }
 
 export default function StoryPage() {
@@ -31,8 +34,8 @@ export default function StoryPage() {
   const finalHtml = useMemo(() => {
     if (!job?.storyHtml || !id) return null;
     const sanitized = sanitizeStoryHtml(job.storyHtml);
-    return injectEmbed(sanitized, id);
-  }, [job?.storyHtml, id]);
+    return injectEmbed(sanitized, id, job.illustrationImageBase64);
+  }, [job?.storyHtml, job?.illustrationImageBase64, id]);
 
   if (loading) {
     return (
@@ -99,6 +102,17 @@ export default function StoryPage() {
           {title}
         </h1>
 
+        {job.previewImageBase64 && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={`data:image/png;base64,${job.previewImageBase64}`}
+            alt="Video preview"
+            className="rounded-xl border border-zinc-800/70 w-full mb-10"
+            width={640}
+            height={480}
+          />
+        )}
+
         <article
           className="prose-story"
           dangerouslySetInnerHTML={{ __html: finalHtml }}
@@ -147,6 +161,17 @@ export default function StoryPage() {
           overflow: hidden;
           border: 1px solid #3f3f46;
           box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+        }
+        .story-illustration {
+          margin: 0 0 3rem;
+          border-radius: 14px;
+          overflow: hidden;
+          border: 1px solid #3f3f46;
+        }
+        .story-illustration img {
+          display: block;
+          width: 100%;
+          height: auto;
         }
       `}</style>
     </main>

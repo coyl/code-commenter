@@ -35,5 +35,7 @@ export type JobResponse = {
   title?: string;
   narrationLang?: string;
   storyHtml?: string;
+  previewImageBase64?: string;
+  illustrationImageBase64?: string;
   segments: JobSegmentStored[];
 };

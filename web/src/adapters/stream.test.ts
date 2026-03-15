@@ -43,6 +43,26 @@ describe("stream adapter parseMessage", () => {
     expect(event).toEqual({ type: "story", storyHtml: "<p>Intro</p>{{EMBED_PLAYER}}<p>Outro</p>" });
   });
 
+  it("parses visuals event with both images", () => {
+    const raw = JSON.stringify({
+      type: "visuals",
+      previewImageBase64: "abc123preview",
+      illustrationImageBase64: "def456illustration",
+    });
+    const event = parseMessage(raw);
+    expect(event).toEqual({
+      type: "visuals",
+      previewImageBase64: "abc123preview",
+      illustrationImageBase64: "def456illustration",
+    });
+  });
+
+  it("parses visuals event with missing images as empty strings", () => {
+    const raw = JSON.stringify({ type: "visuals" });
+    const event = parseMessage(raw);
+    expect(event).toEqual({ type: "visuals", previewImageBase64: "", illustrationImageBase64: "" });
+  });
+
   it("returns null for invalid JSON", () => {
     expect(parseMessage("not json")).toBeNull();
   });

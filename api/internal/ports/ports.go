@@ -42,10 +42,13 @@ type GenerationPort interface {
 	GenerateWrappingNarration(ctx context.Context, spec, language, narrationLang string) (string, error)
 	// GenerateWrappingNarrationForUserCode returns a short closing voiceover for user-pasted code (segmentNarrationsSummary is concatenated segment narrations).
 	GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error)
-	GenerateTitle(ctx context.Context, spec, prompt string) (string, error)
+	// GenerateTitle returns a short title for the job, written in narrationLang.
+	GenerateTitle(ctx context.Context, spec, prompt, narrationLang string) (string, error)
 	// GenerateStory returns an HTML article body (no html/head/body tags) describing the problem and solution.
-	// The text includes the marker {{EMBED_PLAYER}} exactly once, positioned in the middle so an embed iframe can be injected there.
-	GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error)
+	// The text is written in narrationLang (same as the voiceover). The marker {{EMBED_PLAYER}} appears exactly once, mid-article.
+	GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (string, error)
+	// GenerateImages returns a video-preview thumbnail and an article illustration as base64-encoded PNGs (640x480 each).
+	GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (JobImages, error)
 }
 
 // AudioPort owns narration -> audio chunk generation.
@@ -67,9 +70,15 @@ type SessionRepository interface {
 	Get(id string) *SessionData
 }
 
+// JobImages holds generated visual assets for a job (both 640x480 PNG, base64-encoded).
+type JobImages struct {
+	PreviewImageBase64      string // YouTube-style thumbnail conveying the code concept
+	IllustrationImageBase64 string // clean diagram or scheme of the approach
+}
+
 // JobRepository archives generated jobs and loads them by id.
 type JobRepository interface {
-	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, storyHTML string, segments []JobSegment, segmentAudio [][]byte) error
+	UploadJob(ctx context.Context, jobID, prompt, rawJSON, fullCode, fullCodePlain, css, title, narrationLang, ownerSub, ownerEmail, storyHTML string, images JobImages, segments []JobSegment, segmentAudio [][]byte) error
 	GetJob(ctx context.Context, jobID string) (interface{}, error)
 	IsEnabled() bool
 }
@@ -116,8 +125,10 @@ type StreamEvent struct {
 	CodePlain string
 	Narration string
 	RawJSON   string
-	StoryHTML string
-	Index     int
+	StoryHTML               string
+	PreviewImageBase64      string
+	IllustrationImageBase64 string
+	Index                   int
 	Error     string
 	AudioData string
 }

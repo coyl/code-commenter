@@ -121,6 +121,7 @@ export default function EmbedJobPage() {
           onDisplayedCodeChange={setDisplayedCode}
           jobId={id}
           autoplay={autoplay}
+          previewImageBase64={job.previewImageBase64 || null}
         />
       </div>
 

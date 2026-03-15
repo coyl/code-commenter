@@ -61,12 +61,20 @@ func (a *Adapter) GenerateWrappingNarration(ctx context.Context, spec, language,
 func (a *Adapter) GenerateWrappingNarrationForUserCode(ctx context.Context, segmentNarrationsSummary, narrationLang string) (string, error) {
 	return a.Client.GenerateWrappingNarrationForUserCode(ctx, segmentNarrationsSummary, narrationLang)
 }
-func (a *Adapter) GenerateTitle(ctx context.Context, spec, prompt string) (string, error) {
-	return a.Client.GenerateTitle(ctx, spec, prompt)
+func (a *Adapter) GenerateTitle(ctx context.Context, spec, prompt, narrationLang string) (string, error) {
+	return a.Client.GenerateTitle(ctx, spec, prompt, narrationLang)
 }
 
-func (a *Adapter) GenerateStory(ctx context.Context, title, spec, language, segmentNarrations string) (string, error) {
-	return a.Client.GenerateStory(ctx, title, spec, language, segmentNarrations)
+func (a *Adapter) GenerateStory(ctx context.Context, title, spec, language, narrationLang, segmentNarrations string) (string, error) {
+	return a.Client.GenerateStory(ctx, title, spec, language, narrationLang, segmentNarrations)
+}
+
+func (a *Adapter) GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (ports.JobImages, error) {
+	preview, illustration, err := a.Client.GenerateImages(ctx, title, spec, language, segmentNarrations)
+	return ports.JobImages{
+		PreviewImageBase64:      preview,
+		IllustrationImageBase64: illustration,
+	}, err
 }
 
 func (a *Adapter) GenerateAudioChunks(ctx context.Context, narration string) ([]string, error) {
