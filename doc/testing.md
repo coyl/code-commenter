@@ -38,7 +38,7 @@ Try these in **Describe a task** with **Generate** to see streaming, progress, a
 
 **Test:** Use any sample prompt above; confirm the progress bar advances and the stage text updates before the full code is shown.
 
-### 3. Voiceover (Gemini Live API)
+### 3. Voiceover
 
 - When streaming finishes, **voiceover** plays in sync with **code segments**: each segment can be played; the UI highlights the active segment.
 - **Narration language** controls the voice language (English, German, Spanish, Italian, Chinese).

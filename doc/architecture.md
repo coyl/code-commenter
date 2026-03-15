@@ -2,12 +2,11 @@
 
 ## Overview
 
-Anee Explainee is a multi-agent AI system for the Gemini Live Agent Challenge. Users describe a coding task (text or live voice), and an agentic orchestration pipeline autonomously generates structured code with dynamic CSS, synchronized voiceover, AI-generated visuals, and a shareable story article — all streamed in real time.
+Anee Explainee is a multi-agent AI system. Users describe a coding task (text), and an agentic orchestration pipeline autonomously generates structured code with dynamic CSS, synchronized voiceover, AI-generated visuals, and a shareable story article — all streamed in real time.
 
 ## Mandatory tech
 
 - **Gemini 3 Flash** (`gemini-3-flash-preview` by default) for all text/code/CSS/story generation via Google GenAI SDK. Override with `GEMINI_MODEL`.
-- **Gemini Live API** (WebSocket) for real-time bidirectional voice: live voice task input and voiceover output.
 - **Google Cloud** for hosting the backend (Cloud Run), job index (Firestore/Datastore), and container builds (Cloud Build).
 
 ## Architecture diagram
@@ -27,7 +26,6 @@ flowchart LR
   subgraph client [Web Frontend — Next.js]
     UI[Task input]
     View[Code + CSS view]
-    VoiceIn[Voice input]
     VoiceOut[Voiceover playback]
   end
 
@@ -45,19 +43,16 @@ flowchart LR
   subgraph models [Gemini Models]
     Flash[Gemini 3 Flash]
     ImageModel[Gemini 3.1 Flash Image]
-    LiveAPI[Gemini Live API]
     TTS[Gemini TTS]
     Timestamp[Gemini 2.5 Flash]
   end
 
   UI -->|text task| SpecAgent
-  VoiceIn -->|live audio| LiveAPI
   SpecAgent --> Flash
   StyleAgent --> Flash
   CodeAgent --> Flash
   NarratorAgent --> Flash
   VoiceAgent --> TTS
-  VoiceAgent --> LiveAPI
   VoiceAgent --> Timestamp
   VisualAgent --> ImageModel
   StoryAgent --> Flash
@@ -67,7 +62,7 @@ flowchart LR
 
 ## Agentic pipeline — data flow
 
-1. **Task input:** User enters text (or uses live voice via WebSocket → Gemini Live API for transcript).
+1. **Task input:** User enters text.
 2. **Spec Agent** (Gemini 3 Flash): Decomposes the task into a structured spec + narration script.
 3. **Style Agent** (Gemini 3 Flash): Generates a cohesive CSS theme for the code viewer.
 4. **Code Agent** (Gemini 3 Flash): Produces segmented code with per-segment narration using schema-constrained structured output (`genai.Schema` with `application/json`).
@@ -87,7 +82,6 @@ All stages emit typed events through the **Event Sink** (WebSocket): `stage`, `s
 | **Orchestrator** | Go backend: agentic pipeline with hexagonal architecture (ports/adapters). Coordinates seven specialized agents. |
 | **Gemini 3 Flash** | Text/code/CSS/story generation via GenAI SDK. Schema-constrained structured output. |
 | **Gemini 3.1 Flash Image** | Multimodal image generation (thumbnail + illustration). |
-| **Live API** | Real-time bidirectional voice I/O over WebSocket; proxied by backend so API key stays server-side. |
 | **Gemini TTS** | Batch text-to-speech (`gemini-2.5-flash-preview-tts`). |
 | **Gemini 2.5 Flash** | Audio timestamp detection for segment-level alignment. |
 | **Session store** | In-memory store keyed by job ID. |
@@ -97,14 +91,13 @@ All stages emit typed events through the **Event Sink** (WebSocket): `stage`, `s
 ## API
 
 - `GET /task/stream` — WebSocket. Client sends JSON with `task`, `language`, optional `code` (user-code mode). Server streams `stage`, `spec`, `css`, `segment`, `audio`, `story`, `visuals`, `code_done`, `error`.
-- `GET /live` — WebSocket upgrade. Server proxies to Gemini Live API; client sends/receives Live API message format (setup, realtimeInput, server content).
 - `GET /jobs/{id}` — Public job retrieval for permalinks and embed.
 - `GET /jobs/mine` — Authenticated: list current user's jobs.
 - `GET /jobs/recent` — List recently created jobs across all users.
 
 ## Environment
 
-- **Backend:** `GEMINI_API_KEY` or `GOOGLE_API_KEY`, optional `PORT`, `GEMINI_MODEL`, `GEMINI_LIVE_MODEL`, `GEMINI_TTS_MODEL`, `TIMESTAMP_MODEL`, `ALLOWED_ORIGINS`, `DISABLE_AUTH`.
+- **Backend:** `GEMINI_API_KEY` or `GOOGLE_API_KEY`, optional `PORT`, `GEMINI_MODEL`, `GEMINI_TTS_MODEL`, `TIMESTAMP_MODEL`, `ALLOWED_ORIGINS`, `DISABLE_AUTH`.
 - **Frontend:** `NEXT_PUBLIC_API_URL` (backend URL for API and WebSocket), or runtime `config.json`.
 
 ## Deployment

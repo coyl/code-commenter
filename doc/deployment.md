@@ -16,7 +16,6 @@ export GEMINI_API_KEY="your-gemini-api-key"
 # Optional
 export PORT=8080
 export GEMINI_MODEL=gemini-3-flash-preview
-export GEMINI_LIVE_MODEL=gemini-2.5-flash-native-audio-preview-12-2025
 export ALLOWED_ORIGINS=http://localhost:3010
 # TTS: default is one batched call per task (saves RPD). Set to "on" for one TTS request per segment.
 # export TTS_PER_SEGMENT=on

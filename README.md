@@ -2,10 +2,10 @@
 
 **A multi-agent AI system that autonomously transforms coding tasks into immersive, multimodal walkthroughs — with real-time voice, typing animations, and AI-generated visuals.**
 
-Describe a coding task (text or live voice) and the agentic pipeline decomposes it, generates styled code, produces a synchronized voiceover in your chosen language, creates visual assets, and publishes a shareable interactive player — all streamed in real time.
+Describe a coding task (text) and the agentic pipeline decomposes it, generates styled code, produces a synchronized voiceover in your chosen language, creates visual assets, and publishes a shareable interactive player — all streamed in real time.
 
 <p align="center">
-  <img src="doc/architecture.svg" alt="Anee Explainee — Multi-Agent Architecture" width="960"/>
+  <img src="doc/architecture-high-level.svg" alt="High-level architecture: Frontend, Backend, Gemini + Cloud" width="900"/>
 </p>
 
 ## Agentic architecture
@@ -18,7 +18,7 @@ The backend runs a **multi-agent orchestration pipeline** where seven specialize
 | **Style Agent** | Gemini 3 Flash | Dynamic CSS theming — generates a cohesive code viewer theme |
 | **Code Agent** | Gemini 3 Flash | Structured code generation — produces segmented code with schema-constrained JSON output |
 | **Narrator Agent** | Gemini 3 Flash | Voiceover scripting — writes per-segment narration in the selected language |
-| **Voice Agent** | Gemini TTS + Live API | Audio synthesis — batched TTS with LLM-driven audio timestamp detection for alignment |
+| **Voice Agent** | Gemini TTS | Audio synthesis — batched TTS with LLM-driven audio timestamp detection for alignment |
 | **Visual Agent** | Gemini 3.1 Flash Image | Multimodal image generation — thumbnail + technical illustration (parallel execution) |
 | **Story Agent** | Gemini 3 Flash | Article generation — blog-style write-up with embedded interactive player |
 
@@ -30,12 +30,11 @@ The orchestrator chains these agents through an **event-driven architecture** (`
 - **Schema-constrained structured output** — `genai.Schema` with `ResponseMIMEType: "application/json"` ensures deterministic agentic data flow between pipeline stages
 - **Multi-model orchestration** — five distinct Gemini models selected per sub-task for optimal performance (text, code, image, audio, timestamp detection)
 - **Human-in-the-loop** — the agent adapts its execution path based on user intent (text vs. voice input, task generation vs. user-code narration mode)
-- **Multimodal I/O** — text in, voice in (Live API), code + CSS out, audio out (TTS), image out (generated visuals), HTML out (story article)
+- **Multimodal I/O** — text in, code + CSS out, audio out (TTS), image out (generated visuals), HTML out (story article)
 
 ## Mandatory tech
 
 - **Gemini 3 Flash** (`gemini-3-flash-preview`) — all text/code/CSS/story generation via Google GenAI SDK (`google.golang.org/genai`). Override with `GEMINI_MODEL`.
-- **Gemini Live API** (WebSocket) — real-time bidirectional voice: live voice task input and voiceover output. Override model with `GEMINI_LIVE_MODEL`.
 - **Google Cloud** — backend hosted on Cloud Run; Firestore/Datastore for job index and quota; Cloud Build for container images; Google OAuth for auth.
 
 ## Quick start
@@ -82,11 +81,12 @@ For **deployment** (Cloud Run staging/production, GitHub Actions, deploy configs
 
 ## Repo layout
 
-- **`api/`** — Go backend: agentic orchestrator, WebSocket `GET /task/stream` (streaming spec/CSS/code/audio + stage events), WebSocket `GET /live` (Live API proxy).
+- **`api/`** — Go backend: agentic orchestrator, WebSocket `GET /task/stream` (streaming spec/CSS/code/audio + stage events).
 - **`web/`** — Next.js frontend: task input, generation progress (stage labels + %), code view with typing effect, dynamic CSS, voice playback, embed player.
 - **`scripts/`** — Fast staging deploy scripts (Cloud Run from source).
 - **`deploy/`** — Cloud Run configs: env stubs and Secret Manager links (`env.prod.yaml`), list of [secrets to create](deploy/secrets-to-create.md). Secrets YAML in this directory is encrypted with SOPS.
 - **`doc/architecture.md`** — Architecture with Mermaid diagram.
+- **`doc/architecture-high-level.svg`** — High-level architecture (Frontend, Backend, Gemini + Cloud).
 - **`doc/architecture.svg`** — Full architecture diagram (visual).
 - **`doc/architecture-backend.svg`** — Backend (orchestrator + Gemini + Cloud) diagram.
 - **`doc/architecture-frontend.svg`** — Frontend architecture diagram.
@@ -95,18 +95,29 @@ For **deployment** (Cloud Run staging/production, GitHub Actions, deploy configs
 
 ## Architecture diagram
 
-- **Full system:** [`doc/architecture.svg`](doc/architecture.svg)
-- **Backend:** [`doc/architecture-backend.svg`](doc/architecture-backend.svg) (orchestrator, Gemini models, Google Cloud)
-- **Frontend:** [`doc/architecture-frontend.svg`](doc/architecture-frontend.svg) (Next.js app and data flow)
+**Full system:** [doc/architecture.svg](doc/architecture.svg) (Mermaid: [doc/architecture.md](doc/architecture.md))
 
-Mermaid source: [`doc/architecture.md`](doc/architecture.md).
+<p align="center">
+  <img src="doc/architecture.svg" alt="Full multi-agent architecture" width="960"/>
+</p>
+
+**Backend** (orchestrator, Gemini models, Google Cloud):
+
+<p align="center">
+  <img src="doc/architecture-backend.svg" alt="Backend architecture" width="820"/>
+</p>
+
+**Frontend** (Next.js app and data flow):
+
+<p align="center">
+  <img src="doc/architecture-frontend.svg" alt="Frontend architecture" width="380"/>
+</p>
 
 ## API summary
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET    | `/task/stream` | WebSocket: agentic pipeline stream — emits `stage`, `spec`, `css`, `segment`, `audio`, `story`, `visuals`, `code_done`, `error`. Requires auth when OAuth is configured. |
-| GET    | `/live` | WebSocket: proxy to Gemini Live API for real-time bidirectional voice I/O. |
 | GET    | `/auth/start` | Redirect to Google OAuth. Query: `redirect` (URL to return to after login). |
 | GET    | `/auth/callback` | OAuth callback; sets session cookie and redirects. |
 | GET    | `/auth/logout` | Clears session cookie and redirects. Query: `redirect`. |
@@ -180,7 +191,6 @@ If a job cannot be loaded, the embed route shows an in-frame error message.
 |-------|-----------|---------|
 | **Gemini 3 Flash** | `gemini-3-flash-preview` | Task spec, CSS, code segments, narration, story, title (`GEMINI_MODEL`) |
 | **Gemini 3.1 Flash Image** | `gemini-3.1-flash-image-preview` | Preview thumbnail + illustration image generation |
-| **Gemini Live API** | `gemini-2.5-flash-native-audio-preview-12-2025` | Real-time bidirectional voice I/O (`GEMINI_LIVE_MODEL`) |
 | **Gemini TTS** | `gemini-2.5-flash-preview-tts` | Batch text-to-speech for voiceover (`GEMINI_TTS_MODEL`) |
 | **Gemini 2.5 Flash** | `gemini-2.5-flash` | Audio timestamp detection for segment alignment (`TIMESTAMP_MODEL`) |
 
