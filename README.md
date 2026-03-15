@@ -1,12 +1,42 @@
 # Anee Explainee
 
-Describe a coding task (text or live voice) and get code with just-in-time streaming and Gemini Live API voiceover. The UI shows live progress stages (e.g. “Generating task spec”, “Generating CSS”, “Generating voiceover”) while the backend streams spec, CSS, code segments, and audio.
+**A multi-agent AI system that autonomously transforms coding tasks into immersive, multimodal walkthroughs — with real-time voice, typing animations, and AI-generated visuals.**
 
-## Requirements
+Describe a coding task (text or live voice) and the agentic pipeline decomposes it, generates styled code, produces a synchronized voiceover in your chosen language, creates visual assets, and publishes a shareable interactive player — all streamed in real time.
 
-- **Gemini 3.1** for all generation (task spec, CSS, code).
-- **Gemini Live API** for real-time voice (mandatory).
-- **Google Cloud** for hosting the backend.
+<p align="center">
+  <img src="doc/architecture.svg" alt="Anee Explainee — Multi-Agent Architecture" width="960"/>
+</p>
+
+## Agentic architecture
+
+The backend runs a **multi-agent orchestration pipeline** where seven specialized agents execute autonomously, each backed by a purpose-selected Gemini model:
+
+| Agent | Gemini Model | Role |
+|-------|-------------|------|
+| **Spec Agent** | Gemini 3 Flash | Task decomposition — turns a user prompt into a structured spec |
+| **Style Agent** | Gemini 3 Flash | Dynamic CSS theming — generates a cohesive code viewer theme |
+| **Code Agent** | Gemini 3 Flash | Structured code generation — produces segmented code with schema-constrained JSON output |
+| **Narrator Agent** | Gemini 3 Flash | Voiceover scripting — writes per-segment narration in the selected language |
+| **Voice Agent** | Gemini TTS + Live API | Audio synthesis — batched TTS with LLM-driven audio timestamp detection for alignment |
+| **Visual Agent** | Gemini 3.1 Flash Image | Multimodal image generation — thumbnail + technical illustration (parallel execution) |
+| **Story Agent** | Gemini 3 Flash | Article generation — blog-style write-up with embedded interactive player |
+
+The orchestrator chains these agents through an **event-driven architecture** (`EventSink` with typed events: `stage`, `spec`, `css`, `segment`, `audio`, `story`, `visuals`, `code_done`) — streaming results to the frontend in real time over WebSocket. Sub-tasks run with **concurrent execution** (image generation runs in parallel via goroutines with `sync.WaitGroup`; batched TTS uses rate-limited concurrency).
+
+### Key technical patterns
+
+- **Hexagonal / Ports & Adapters architecture** — clean separation of domain logic from infrastructure (`ports/` interfaces, `adapters/` implementations); agents are swappable and testable
+- **Schema-constrained structured output** — `genai.Schema` with `ResponseMIMEType: "application/json"` ensures deterministic agentic data flow between pipeline stages
+- **Multi-model orchestration** — five distinct Gemini models selected per sub-task for optimal performance (text, code, image, audio, timestamp detection)
+- **Human-in-the-loop** — the agent adapts its execution path based on user intent (text vs. voice input, task generation vs. user-code narration mode)
+- **Multimodal I/O** — text in, voice in (Live API), code + CSS out, audio out (TTS), image out (generated visuals), HTML out (story article)
+
+## Mandatory tech
+
+- **Gemini 3 Flash** (`gemini-3-flash-preview`) — all text/code/CSS/story generation via Google GenAI SDK (`google.golang.org/genai`). Override with `GEMINI_MODEL`.
+- **Gemini Live API** (WebSocket) — real-time bidirectional voice: live voice task input and voiceover output. Override model with `GEMINI_LIVE_MODEL`.
+- **Google Cloud** — backend hosted on Cloud Run; Firestore/Datastore for job index and quota; Cloud Build for container images; Google OAuth for auth.
 
 ## Quick start
 
@@ -22,8 +52,8 @@ export GEMINI_API_KEY="your-gemini-api-key"
 # Optional
 export PORT=8080
 export GEMINI_MODEL=gemini-3-flash-preview
-export GEMINI_LIVE_MODEL=gemini-2.5-flash-preview-native-audio-05-20
-export ALLOWED_ORIGINS=http://localhost:3000
+export GEMINI_LIVE_MODEL=gemini-2.5-flash-native-audio-preview-12-2025
+export ALLOWED_ORIGINS=http://localhost:3010
 # TTS: default is one batched call per task (saves RPD). Set to "on" for one TTS request per segment.
 # export TTS_PER_SEGMENT=on
 # Model for audio timestamp detection in batched TTS (default: gemini-2.5-flash).
@@ -36,6 +66,7 @@ export ALLOWED_ORIGINS=http://localhost:3000
 #   Local: http://localhost:3010/auth/callback   Prod: https://your-app-domain.com/auth/callback
 # export AUTH_CALLBACK_URL=https://your-app-domain.com/auth/callback
 # export SESSION_SECRET=at-least-32-byte-random-string-for-cookie-signing
+# To disable auth even when OAuth vars are set: export DISABLE_AUTH=yes
 
 # Optional: Job index for "My jobs" (use one when auth is enabled)
 # Firestore (Native mode):
@@ -49,7 +80,7 @@ export ALLOWED_ORIGINS=http://localhost:3000
 For the frontend, create `web/.env.local` (optional):
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_API_URL=http://localhost:8090
 ```
 
 The frontend also reads the API URL at **runtime** from `web/public/config.json`. That file is fetched in the browser on first use; if missing or invalid, the app falls back to `NEXT_PUBLIC_API_URL` or `http://localhost:8080`. For local dev, the repo includes a `config.json` pointing at localhost. For production, you can overwrite `config.json` at container start so one build works for any backend URL.
@@ -75,7 +106,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Enter a task (e.g. “A React counter with increment and decrement”), choose language, click Generate.
+Open [http://localhost:3000](http://localhost:3000). Enter a task (e.g. "A React counter with increment and decrement"), choose language, click Generate.
 
 ### 3. Run with Docker Compose
 
@@ -85,12 +116,14 @@ From the repo root:
 docker-compose up --build
 ```
 
-- API: [http://localhost:8080](http://localhost:8080)
-- Web UI: [http://localhost:3000](http://localhost:3000)
+- API: [http://localhost:8090](http://localhost:8090) (mapped `8090:8080`)
+- Web UI: [http://localhost:3010](http://localhost:3010) (mapped `3010:3000`)
 
-Set `GEMINI_API_KEY` in the environment or in `docker-compose.yaml` (or use a `.env` file and `env_file` in the compose file).
+Set `GEMINI_API_KEY` in the environment or in a `.env` file in the repo root.
 
-### 4. Deploy both to Cloud Run (script)
+### 4. Deploy both to Cloud Run (staging — fast path)
+
+The scripts in `scripts/` are a **fast solution for staging deployments**: they use `gcloud run deploy --source` (no pre-built images), load env from `.env.prod`, and wire API ↔ web URLs and CORS. For production, prefer the **declarative configs** in `deploy/` with images built by CI (see [GitHub Actions](#github-actions-build--push-images) and [deploy/](#deploy-configs)).
 
 From the repo root, create a `.env.prod` file (not committed; see `.gitignore`) with at least `GEMINI_API_KEY` and optionally S3 and other API env vars:
 
@@ -112,7 +145,7 @@ Then run:
 ./scripts/deploy-cloudrun.sh
 ```
 
-The script loads `.env.prod`, deploys the API (with those env vars), then the frontend (with the API URL inlined), then sets the API’s `ALLOWED_ORIGINS` to the frontend URL. Optional: pass a GCP project ID to switch to that project before deploying:
+The script loads `.env.prod`, deploys the API (with those env vars), then the frontend (with the API URL inlined), then sets the API's `ALLOWED_ORIGINS` to the frontend URL. Optional: pass a GCP project ID to switch to that project before deploying:
 
 ```bash
 ./scripts/deploy-cloudrun.sh my-gcp-project-id
@@ -120,7 +153,9 @@ The script loads `.env.prod`, deploys the API (with those env vars), then the fr
 
 Requires `gcloud` CLI and an existing GCP project (builds run in Cloud Build; local Docker not required). The script uses region `europe-west1` (Frankfurt) unless you set `REGION` in the environment.
 
-To deploy only the frontend (e.g. after changing the web app or switching API URL), use `./scripts/deploy-cloudrun-web.sh [GCP_PROJECT_ID]`. It needs the API base URL: set `API_URL` in `.env.prod` or in the environment, or have the API already deployed in the same project/region so the script can discover it. To allow a custom domain (e.g. `https://code.vasiliy.pro`) in CORS, set `EXTRA_ALLOWED_ORIGINS` in `.env.prod` (comma-separated list); the script merges it with the Cloud Run web URL when updating the API’s `ALLOWED_ORIGINS`.
+To deploy only the frontend (e.g. after changing the web app or switching API URL), use `./scripts/deploy-cloudrun-web.sh [GCP_PROJECT_ID]`. It needs the API base URL: set `API_URL` in `.env.prod` or in the environment, or have the API already deployed in the same project/region so the script can discover it. To allow a custom domain (e.g. `https://code.vasiliy.pro`) in CORS, set `EXTRA_ALLOWED_ORIGINS` in `.env.prod` (comma-separated list); the script merges it with the Cloud Run web URL when updating the API's `ALLOWED_ORIGINS`.
+
+**Secrets:** Any YAML in `deploy/` that holds secret values (e.g. for local or CI use) is **encrypted with [SOPS](https://github.com/getsops/sops)**. Decrypt with `sops -d deploy/<file>.yaml` before use; do not commit decrypted secret files.
 
 ### 5. Deploy backend to Google Cloud Run (manual)
 
@@ -174,38 +209,64 @@ gcloud run deploy code-commenter-web \
 ```
 
 - **Artifact Registry:** Create a repository if needed: `gcloud artifacts repositories create code-commenter --repository-format=docker --location=us-central1`.
-- **CORS:** Set the API’s `ALLOWED_ORIGINS` to include your frontend’s Cloud Run URL.
+- **CORS:** Set the API's `ALLOWED_ORIGINS` to include your frontend's Cloud Run URL.
+
+### Deploy configs (production-style)
+
+The **`deploy/`** directory holds Cloud Run–oriented configs for production-style deployments:
+
+- **`deploy/env.prod.yaml`** — Stub env vars and Secret Manager secret links (no real values). Use with `gcloud run deploy --env-vars-file` (after substituting stubs) and `--set-secrets` for values from [Google Secret Manager](https://cloud.google.com/secret-manager). See `deploy/README.md` for usage.
+- **`deploy/secrets-to-create.md`** — List of secrets to create in Secret Manager; create these once per project, then reference them in `env.prod.yaml` or in Cloud Run service configs.
+- Any YAML in `deploy/` that contains actual secret values is **encrypted with SOPS**; decrypt before use.
+
+Images for these configs are built by the GitHub Actions workflow below and stored in Google Artifact Registry.
+
+### GitHub Actions (build, push, deploy)
+
+A GitHub Actions workflow builds the API and web Docker images, pushes them to **Google Artifact Registry**, and **deploys** both services to Cloud Run (mirroring `scripts/deploy-cloudrun-api.sh` and `scripts/deploy-cloudrun-web.sh`).
+
+- **Workflow:** [`.github/workflows/build-push-images.yaml`](.github/workflows/build-push-images.yaml)
+- **Triggers:** Push to `main`, or manual `workflow_dispatch`.
+- **Secrets (repository):** `GCP_PROJECT_ID`, `GCP_SA_KEY` (service account with Artifact Registry Writer, Cloud Run Admin, Service Account User, and Secret Manager Secret Accessor for API secrets). Alternatively use [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation) and set `GCP_WORKLOAD_IDENTITY_PROVIDER` / `GCP_SERVICE_ACCOUNT`.
+- **Deploy:** API is deployed with `GEMINI_API_KEY` from Secret Manager (`code-commenter-gemini-api-key`); optional env (S3, Firestore, OAuth) via repository **variables** (`S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `AWS_REGION`, `FIRESTORE_PROJECT_ID`, `GOOGLE_CLIENT_ID`, `EXTRA_ALLOWED_ORIGINS`, etc.). Create secrets per [deploy/secrets-to-create.md](deploy/secrets-to-create.md).
+- **Output:** Images in `REGION-docker.pkg.dev/PROJECT_ID/code-commenter/code-commenter-api:latest` and `code-commenter-web:latest`; both services deployed to Cloud Run in `REGION`.
 
 ## Repo layout
 
-- **`api/`** — Go backend: WebSocket GET `/task/stream` (streaming spec/CSS/code/audio + stage events), WebSocket `GET /live` (Live API proxy).
-- **`web/`** — Next.js frontend: task input, generation progress (stage labels + %), code view with typing effect, dynamic CSS.
-- **`doc/architecture.md`** — Architecture and data flow.
+- **`api/`** — Go backend: agentic orchestrator, WebSocket `GET /task/stream` (streaming spec/CSS/code/audio + stage events), WebSocket `GET /live` (Live API proxy).
+- **`web/`** — Next.js frontend: task input, generation progress (stage labels + %), code view with typing effect, dynamic CSS, voice playback, embed player.
+- **`scripts/`** — Fast staging deploy scripts (Cloud Run from source).
+- **`deploy/`** — Cloud Run configs: env stubs and Secret Manager links (`env.prod.yaml`), list of [secrets to create](deploy/secrets-to-create.md). Secrets YAML in this directory is encrypted with SOPS.
+- **`doc/architecture.md`** — Architecture with Mermaid diagram.
+- **`doc/architecture.svg`** — Architecture diagram (visual).
+- **`doc/testing.md`** — Reviewer guide with sample prompts and checklist.
 
 ## Architecture diagram
 
-See [doc/architecture.md](doc/architecture.md) for the Mermaid diagram (Browser ↔ Backend ↔ Gemini 3.1 + Gemini Live API).
+See [`doc/architecture.svg`](doc/architecture.svg) for the full visual diagram, or the Mermaid source in [`doc/architecture.md`](doc/architecture.md).
 
 ## API summary
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET    | `/task/stream` | WebSocket: stream task with `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`. Requires auth when OAuth is configured. |
-| GET    | `/live` | WebSocket: proxy to Gemini Live API for voice in/out. |
+| GET    | `/task/stream` | WebSocket: agentic pipeline stream — emits `stage`, `spec`, `css`, `segment`, `audio`, `story`, `visuals`, `code_done`, `error`. Requires auth when OAuth is configured. |
+| GET    | `/live` | WebSocket: proxy to Gemini Live API for real-time bidirectional voice I/O. |
 | GET    | `/auth/start` | Redirect to Google OAuth. Query: `redirect` (URL to return to after login). |
 | GET    | `/auth/callback` | OAuth callback; sets session cookie and redirects. |
 | GET    | `/auth/logout` | Clears session cookie and redirects. Query: `redirect`. |
-| GET    | `/me` | Returns `{ sub, email }` when signed in; 401 otherwise. Requires cookies. |
+| GET    | `/me` | Returns `{ sub, email, quotaRemaining }` when signed in; 401 otherwise. |
 | GET    | `/jobs/mine` | Returns list of current user's jobs `[{ id, title, createdAt }]`. Requires auth. Query: `limit` (default 50). |
+| GET    | `/jobs/recent` | Returns recently created jobs across all users (newest first). Query: `limit` (default 20). |
 | GET    | `/jobs/{id}` | Returns job by ID (public; used for permalinks and embed). |
 
 ## Auth and jobs
 
 When `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_CALLBACK_URL`, and `SESSION_SECRET` are all set, the API requires sign-in for generation:
 
-- Set `AUTH_CALLBACK_URL` to the **frontend** OAuth callback (e.g. `http://localhost:3010/auth/callback` or `https://your-app.com/auth/callback`). Google redirects users there after sign-in; the frontend then sends the auth code to the API to complete login. This way the URL shown on the Google sign-in screen is your app’s domain.
+- Set `AUTH_CALLBACK_URL` to the **frontend** OAuth callback (e.g. `http://localhost:3010/auth/callback` or `https://your-app.com/auth/callback`). Google redirects users there after sign-in; the frontend then sends the auth code to the API to complete login. This way the URL shown on the Google sign-in screen is your app's domain.
 - Unauthenticated requests to `GET /task/stream` receive 401.
 - The frontend shows "Sign in with Google"; after sign-in, the session cookie is sent with requests (use `credentials: 'include'` and ensure `ALLOWED_ORIGINS` matches the web origin so CORS allows credentials).
+- To disable auth even when OAuth vars are set, use `DISABLE_AUTH=yes`.
 
 With a job index configured, job metadata (owner, title, createdAt) is written on each upload. The "My jobs" sidebar calls `GET /jobs/mine` to list the current user's jobs.
 
@@ -256,5 +317,25 @@ ALLOWED_ORIGINS=https://your-web-domain.com,http://localhost:3000
 ```
 
 If a job cannot be loaded, the embed route shows an in-frame error message.
+
+## Gemini models used
+
+| Model | Default ID | Purpose |
+|-------|-----------|---------|
+| **Gemini 3 Flash** | `gemini-3-flash-preview` | Task spec, CSS, code segments, narration, story, title (`GEMINI_MODEL`) |
+| **Gemini 3.1 Flash Image** | `gemini-3.1-flash-image-preview` | Preview thumbnail + illustration image generation |
+| **Gemini Live API** | `gemini-2.5-flash-native-audio-preview-12-2025` | Real-time bidirectional voice I/O (`GEMINI_LIVE_MODEL`) |
+| **Gemini TTS** | `gemini-2.5-flash-preview-tts` | Batch text-to-speech for voiceover (`GEMINI_TTS_MODEL`) |
+| **Gemini 2.5 Flash** | `gemini-2.5-flash` | Audio timestamp detection for segment alignment (`TIMESTAMP_MODEL`) |
+
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | Go 1.25, `google.golang.org/genai` v1.48.0, Gorilla WebSocket, Chroma syntax highlighter |
+| **Frontend** | Next.js 14, React 18, Tailwind CSS, DOMPurify |
+| **Cloud** | Google Cloud Run, Firestore / Datastore, Cloud Build, Google OAuth 2.0 |
+| **Storage** | S3-compatible (AWS S3 or MinIO) for job persistence |
+| **Testing** | Vitest (frontend) |
 
 For how to run and verify the app locally and in CI, see [doc/testing.md](doc/testing.md).

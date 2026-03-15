@@ -2,72 +2,109 @@
 
 ## Overview
 
-Anee Explainee is a hackathon-compliant web app where users describe a coding task (text or live voice), receive dynamically generated CSS and code with a typing effect and Gemini Live API voiceover.
+Anee Explainee is a multi-agent AI system for the Gemini Live Agent Challenge. Users describe a coding task (text or live voice), and an agentic orchestration pipeline autonomously generates structured code with dynamic CSS, synchronized voiceover, AI-generated visuals, and a shareable story article — all streamed in real time.
 
 ## Mandatory tech
 
-- **Gemini 3 Flash** (`gemini-3-flash-preview` by default) for all text/code/CSS generation (task spec, CSS, code, diff). Override with `GEMINI_MODEL`.
-- **Gemini Live API** (WebSocket) for real-time voice: live voice task input and/or voiceover output.
-- **Google Cloud** for hosting the backend (e.g. Cloud Run).
+- **Gemini 3 Flash** (`gemini-3-flash-preview` by default) for all text/code/CSS/story generation via Google GenAI SDK. Override with `GEMINI_MODEL`.
+- **Gemini Live API** (WebSocket) for real-time bidirectional voice: live voice task input and voiceover output.
+- **Google Cloud** for hosting the backend (Cloud Run), job index (Firestore/Datastore), and container builds (Cloud Build).
+
+## Architecture diagram
+
+<p align="center">
+  <img src="architecture.svg" alt="Multi-Agent Architecture" width="960"/>
+</p>
 
 ## High-level architecture
 
 ```mermaid
 flowchart LR
-  subgraph client [Web Frontend - Next.js]
+  subgraph client [Web Frontend — Next.js]
     UI[Task input]
     View[Code + CSS view]
     VoiceIn[Voice input]
     VoiceOut[Voiceover playback]
   end
 
-  subgraph backend [Backend - Go on Google Cloud]
-    API[API / WebSocket]
-    Live[Gemini Live API - required]
-    Gen[Gemini 3.1]
-    Jobs[Session state]
+  subgraph orchestrator [Agentic Orchestrator — Go on Google Cloud]
+    SpecAgent[Spec Agent]
+    StyleAgent[Style Agent]
+    CodeAgent[Code Agent]
+    NarratorAgent[Narrator Agent]
+    VoiceAgent[Voice Agent]
+    VisualAgent[Visual Agent]
+    StoryAgent[Story Agent]
+    Sink[Event Sink]
   end
 
-  UI -->|text task| API
-  VoiceIn -->|live audio| Live
-  API --> Gen
-  API --> Live
-  Gen -->|CSS + code + script| API
-  Live -->|voiceover stream| VoiceOut
-  API -->|JSON| View
-  Jobs --> API
+  subgraph models [Gemini Models]
+    Flash[Gemini 3 Flash]
+    ImageModel[Gemini 3.1 Flash Image]
+    LiveAPI[Gemini Live API]
+    TTS[Gemini TTS]
+    Timestamp[Gemini 2.5 Flash]
+  end
+
+  UI -->|text task| SpecAgent
+  VoiceIn -->|live audio| LiveAPI
+  SpecAgent --> Flash
+  StyleAgent --> Flash
+  CodeAgent --> Flash
+  NarratorAgent --> Flash
+  VoiceAgent --> TTS
+  VoiceAgent --> LiveAPI
+  VoiceAgent --> Timestamp
+  VisualAgent --> ImageModel
+  StoryAgent --> Flash
+  Sink -->|real-time stream| View
+  Sink -->|audio chunks| VoiceOut
 ```
 
-## Data flow
+## Agentic pipeline — data flow
 
-### First run
+1. **Task input:** User enters text (or uses live voice via WebSocket → Gemini Live API for transcript).
+2. **Spec Agent** (Gemini 3 Flash): Decomposes the task into a structured spec + narration script.
+3. **Style Agent** (Gemini 3 Flash): Generates a cohesive CSS theme for the code viewer.
+4. **Code Agent** (Gemini 3 Flash): Produces segmented code with per-segment narration using schema-constrained structured output (`genai.Schema` with `application/json`).
+5. **Narrator Agent** (Gemini 3 Flash): Generates wrapping narration that summarizes the walkthrough.
+6. **Voice Agent** (Gemini TTS + 2.5 Flash): Batched TTS synthesis for all narrations, then LLM-driven audio timestamp detection to split audio at segment boundaries. Alignment service syncs code segments to audio.
+7. **Visual Agent** (Gemini 3.1 Flash Image): Generates a video thumbnail and a technical illustration in parallel (`sync.WaitGroup` goroutines).
+8. **Story Agent** (Gemini 3 Flash): Produces an HTML article with an embedded player marker (`{{EMBED_PLAYER}}`).
+9. **Persistence:** Job is uploaded to S3-compatible storage; metadata indexed in Firestore/Datastore.
 
-1. **Task input:** User enters text (or uses live voice via WebSocket to backend → Gemini Live API for transcript).
-2. **Backend:** WebSocket `GET /task/stream` with task/language/code. Backend streams: spec, CSS, code segments, and TTS audio for voiceover. Stages (e.g. "Generating task spec", "Generating voiceover") are emitted for progress.
-3. **Voiceover:** Backend generates narration and TTS per segment; audio is streamed to the client. Frontend can also use `GET /live` (WebSocket proxy to Gemini Live API) for real-time voice.
-4. **Response:** Streamed events (`stage`, `spec`, `css`, `segment`, `audio`, `code_done`). Frontend injects CSS into `#dynamic-theme`, renders code with a typing effect, and plays voiceover in sync with segments.
+All stages emit typed events through the **Event Sink** (WebSocket): `stage`, `spec`, `css`, `segment`, `audio`, `story`, `visuals`, `code_done`.
 
 ## Components
 
 | Component        | Role                                                                 |
 |-----------------|----------------------------------------------------------------------|
-| **Frontend**    | Next.js app: task form, code view with typing effect, dynamic CSS, Live WebSocket for voice. |
-| **Backend**     | Go HTTP server: WebSocket `GET /task/stream`, `GET /live` (WebSocket proxy to Live API). |
-| **Gemini 3.1**  | All generation: spec, CSS, code. |
-| **Live API**    | Real-time voice in/out over WebSocket (mandatory); proxied by backend so API key stays server-side. |
-| **Session store** | In-memory store keyed by task `id` (MVP); can be replaced by Firestore/Cloud SQL later. |
+| **Frontend**    | Next.js app: task form, code view with typing effect, dynamic CSS, voice playback, embed player. |
+| **Orchestrator** | Go backend: agentic pipeline with hexagonal architecture (ports/adapters). Coordinates seven specialized agents. |
+| **Gemini 3 Flash** | Text/code/CSS/story generation via GenAI SDK. Schema-constrained structured output. |
+| **Gemini 3.1 Flash Image** | Multimodal image generation (thumbnail + illustration). |
+| **Live API** | Real-time bidirectional voice I/O over WebSocket; proxied by backend so API key stays server-side. |
+| **Gemini TTS** | Batch text-to-speech (`gemini-2.5-flash-preview-tts`). |
+| **Gemini 2.5 Flash** | Audio timestamp detection for segment-level alignment. |
+| **Session store** | In-memory store keyed by job ID. |
+| **Job store** | S3-compatible storage for persistent job data (code, audio, CSS, story). |
+| **Job index** | Firestore or Datastore for job metadata (owner, title, createdAt) and daily quota. |
 
 ## API
 
-- `GET /task/stream` — WebSocket. Client sends JSON with `task`, `language`, optional `code` (your code mode). Server streams `stage`, `spec`, `css`, `segment`, `audio`, `code_done`, `error`.
+- `GET /task/stream` — WebSocket. Client sends JSON with `task`, `language`, optional `code` (user-code mode). Server streams `stage`, `spec`, `css`, `segment`, `audio`, `story`, `visuals`, `code_done`, `error`.
 - `GET /live` — WebSocket upgrade. Server proxies to Gemini Live API; client sends/receives Live API message format (setup, realtimeInput, server content).
+- `GET /jobs/{id}` — Public job retrieval for permalinks and embed.
+- `GET /jobs/mine` — Authenticated: list current user's jobs.
+- `GET /jobs/recent` — List recently created jobs across all users.
 
 ## Environment
 
-- **Backend:** `GEMINI_API_KEY` or `GOOGLE_API_KEY`, optional `PORT`, `GEMINI_MODEL`, `GEMINI_LIVE_MODEL`, `ALLOWED_ORIGINS`.
-- **Frontend:** `NEXT_PUBLIC_API_URL` (backend URL for API and WebSocket).
+- **Backend:** `GEMINI_API_KEY` or `GOOGLE_API_KEY`, optional `PORT`, `GEMINI_MODEL`, `GEMINI_LIVE_MODEL`, `GEMINI_TTS_MODEL`, `TIMESTAMP_MODEL`, `ALLOWED_ORIGINS`, `DISABLE_AUTH`.
+- **Frontend:** `NEXT_PUBLIC_API_URL` (backend URL for API and WebSocket), or runtime `config.json`.
 
 ## Deployment
 
-- Backend: containerize with Dockerfile, deploy to Cloud Run (or GKE).
-- Frontend: build `next build`, static export or run on Node/Cloud Run; set `NEXT_PUBLIC_API_URL` to backend URL.
+- Backend: containerize with Dockerfile, deploy to Cloud Run. Automated via `scripts/deploy-cloudrun-api.sh`.
+- Frontend: Next.js standalone build, deploy to Cloud Run. Automated via `scripts/deploy-cloudrun-web.sh`.
+- Full deploy: `scripts/deploy-cloudrun.sh [GCP_PROJECT_ID]` deploys both and wires CORS.
