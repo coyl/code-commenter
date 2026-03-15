@@ -386,7 +386,7 @@ Rules:
 - A clear flowchart, architecture diagram, or concept map — whichever best fits the approach.
 - Simple labeled shapes and arrows. No actual source code.
 - Clean, minimal, educational layout easy to read at a glance.
-Output only the diagram image.`, title, segmentNarrations, spec)
+Output only the diagram image.`, title, language, segmentNarrations)
 
 	cfg := &genai.GenerateContentConfig{
 		ResponseModalities: []string{"IMAGE"},
