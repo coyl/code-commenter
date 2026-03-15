@@ -12,6 +12,10 @@ Anee Explainee is a multi-agent AI system for the Gemini Live Agent Challenge. U
 
 ## Architecture diagram
 
+- **Full system:** [architecture.svg](architecture.svg)
+- **Backend:** [architecture-backend.svg](architecture-backend.svg) (orchestrator, Gemini models, Google Cloud)
+- **Frontend:** [architecture-frontend.svg](architecture-frontend.svg) (Next.js app and data flow)
+
 <p align="center">
   <img src="architecture.svg" alt="Multi-Agent Architecture" width="960"/>
 </p>
