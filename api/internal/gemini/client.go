@@ -1,15 +1,11 @@
 package gemini
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"image"
-	"image/color"
-	"image/png"
 	_ "image/jpeg"
 	"strings"
 	"sync"
@@ -351,8 +347,6 @@ Rules:
 
 const imageModel = "gemini-3.1-flash-image-preview"
 
-// GenerateImages returns a video-preview thumbnail and an article illustration, both as base64-encoded PNGs
-// resized to 640x480. The two images are generated in parallel. On any error the affected string is empty.
 func (c *Client) GenerateImages(ctx context.Context, title, spec, language, segmentNarrations string) (preview, illustration string, err error) {
 	start := time.Now()
 	defer func() {
@@ -391,7 +385,7 @@ Output only the diagram image.`, title, language, segmentNarrations)
 	cfg := &genai.GenerateContentConfig{
 		ResponseModalities: []string{"IMAGE"},
 		ImageConfig: &genai.ImageConfig{
-			AspectRatio: "4:3",
+			AspectRatio: "16:9",
 		},
 	}
 
@@ -417,11 +411,7 @@ Output only the diagram image.`, title, language, segmentNarrations)
 			ch <- result{err: fmt.Errorf("no image data returned")}
 			return
 		}
-		resized, resizeErr := resizeImageTo640x480(raw)
-		if resizeErr != nil {
-			resized = raw
-		}
-		ch <- result{b64: base64.StdEncoding.EncodeToString(resized)}
+		ch <- result{b64: base64.StdEncoding.EncodeToString(raw)}
 	}
 
 	wg.Add(2)
@@ -460,34 +450,6 @@ func extractImageBytes(resp *genai.GenerateContentResponse) []byte {
 		}
 	}
 	return nil
-}
-
-// resizeImageTo640x480 decodes any PNG/JPEG image and returns a 640x480 PNG using nearest-neighbor scaling.
-func resizeImageTo640x480(data []byte) ([]byte, error) {
-	const targetW, targetH = 640, 480
-	src, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	b := src.Bounds()
-	srcW, srcH := b.Dx(), b.Dy()
-	if srcW == targetW && srcH == targetH {
-		return data, nil
-	}
-	dst := image.NewNRGBA(image.Rect(0, 0, targetW, targetH))
-	for y := 0; y < targetH; y++ {
-		for x := 0; x < targetW; x++ {
-			srcX := b.Min.X + x*srcW/targetW
-			srcY := b.Min.Y + y*srcH/targetH
-			c := color.NRGBAModel.Convert(src.At(srcX, srcY)).(color.NRGBA)
-			dst.SetNRGBA(x, y, c)
-		}
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, dst); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }
 
 // GenerateTitle returns a short title for a job (from spec and prompt/task, or from segment narrations for user code).
@@ -762,8 +724,8 @@ func PCMToWAV(pcm []byte, sampleRate int) []byte {
 	binary.LittleEndian.PutUint16(buf[22:24], 1)  // mono
 	binary.LittleEndian.PutUint32(buf[24:28], uint32(sampleRate))
 	binary.LittleEndian.PutUint32(buf[28:32], uint32(sampleRate*2)) // byte rate (16-bit mono)
-	binary.LittleEndian.PutUint16(buf[32:34], 2)                   // block align
-	binary.LittleEndian.PutUint16(buf[34:36], 16)                  // bits per sample
+	binary.LittleEndian.PutUint16(buf[32:34], 2)                    // block align
+	binary.LittleEndian.PutUint16(buf[34:36], 16)                   // bits per sample
 	copy(buf[36:40], "data")
 	binary.LittleEndian.PutUint32(buf[40:44], uint32(dataLen))
 	copy(buf[44:], pcm)
