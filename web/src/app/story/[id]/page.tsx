@@ -82,7 +82,7 @@ export default function StoryPage() {
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 md:py-14">
         {/* Breadcrumb nav */}
-        <nav className="mb-8 flex items-center gap-2 text-sm" aria-label="Breadcrumb">
+        <nav className="anim-in mb-8 flex items-center gap-2 text-sm" aria-label="Breadcrumb">
           <Link href="/" className="text-zinc-600 hover:text-zinc-300 transition-colors">
             Generator
           </Link>
@@ -98,7 +98,7 @@ export default function StoryPage() {
           <span className="text-zinc-400">Story</span>
         </nav>
 
-        <h1 className="text-2xl md:text-3xl font-bold text-white mb-10 leading-snug tracking-tight">
+        <h1 className="anim-in-d1 text-2xl md:text-3xl font-bold text-white mb-10 leading-snug tracking-tight">
           {title}
         </h1>
 
@@ -107,14 +107,14 @@ export default function StoryPage() {
           <img
             src={`data:image/png;base64,${job.previewImageBase64}`}
             alt="Video preview"
-            className="rounded-xl border border-zinc-800/70 w-full mb-10"
+            className="anim-in-d2 rounded-xl border border-zinc-800/70 w-full mb-10"
             width={640}
             height={480}
           />
         )}
 
         <article
-          className="prose-story"
+          className="anim-in-d3 prose-story"
           dangerouslySetInnerHTML={{ __html: finalHtml }}
         />
       </div>

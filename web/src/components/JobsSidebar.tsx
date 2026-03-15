@@ -5,9 +5,6 @@ import Link from "next/link";
 import { fetchApiAdapter } from "@/adapters/api";
 import type { JobMeta } from "@/domain/api";
 
-const SIDEBAR_WIDTH_OPEN = 264;
-const SIDEBAR_WIDTH_COLLAPSED = 48;
-
 type JobsSidebarProps = {
   open: boolean;
   onToggle: () => void;
@@ -74,19 +71,13 @@ export default function JobsSidebar({
   return (
     <aside
       className={[
-        // Shared base styles
-        "jobs-sidebar flex-shrink-0 flex flex-col bg-zinc-900/95",
-        // Mobile: full-width horizontal panel below header, shown/hidden via display
-        // Desktop (md+): left column, always shown; width controlled by CSS var
+        // Fixed so opening/closing never shifts main content; main content stays centered in viewport
+        "jobs-sidebar fixed left-0 top-14 z-30 flex flex-col bg-zinc-900/95 h-[calc(100vh-3.5rem)]",
+        // Mobile: full-width drawer; desktop: narrow strip or expanded width
         open
-          ? "w-full border-b border-zinc-800/70 md:border-b-0 md:border-r md:border-zinc-800/70"
-          : "hidden md:flex md:border-r md:border-zinc-800/70",
+          ? "w-full border-b border-zinc-800/70 md:w-[264px] md:border-b-0 md:border-r md:border-zinc-800/70"
+          : "hidden md:flex md:w-12 md:border-r md:border-zinc-800/70",
       ].join(" ")}
-      style={{
-        ["--sidebar-w" as string]: open
-          ? `${SIDEBAR_WIDTH_OPEN}px`
-          : `${SIDEBAR_WIDTH_COLLAPSED}px`,
-      }}
     >
       {/* Header bar — always visible when the aside is shown */}
       <div className="flex items-center h-12 min-h-12 border-b border-zinc-800/60 flex-shrink-0 px-2 gap-1">

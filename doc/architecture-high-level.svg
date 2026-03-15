@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 260" font-family="'Segoe UI','Inter',system-ui,sans-serif">
+  <defs>
+    <linearGradient id="bgH" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#09090b"/>
+      <stop offset="100%" stop-color="#18181b"/>
+    </linearGradient>
+    <linearGradient id="cyanH" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0e7490"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <marker id="arrowH" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8" fill="none" stroke="#71717a" stroke-width="1.5"/>
+    </marker>
+  </defs>
+  <rect width="900" height="260" fill="url(#bgH)" rx="16"/>
+  <text x="450" y="32" text-anchor="middle" fill="#e4e4e7" font-size="16" font-weight="700">High-level architecture</text>
+  <line x1="300" y1="42" x2="600" y2="42" stroke="url(#cyanH)" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Web Frontend -->
+  <rect x="40" y="70" width="220" height="160" rx="12" fill="#18181b" stroke="#3f3f46" stroke-width="1.2"/>
+  <text x="150" y="100" text-anchor="middle" fill="#a1a1aa" font-size="12" font-weight="700">WEB FRONTEND</text>
+  <text x="150" y="120" text-anchor="middle" fill="#52525b" font-size="10">Next.js, React</text>
+  <text x="150" y="155" text-anchor="middle" fill="#e4e4e7" font-size="10" font-weight="600">Task input</text>
+  <text x="150" y="172" text-anchor="middle" fill="#71717a" font-size="9">Code player, voice, story</text>
+  <text x="150" y="195" text-anchor="middle" fill="#71717a" font-size="9">WebSocket client</text>
+
+  <!-- Arrow to Backend -->
+  <line x1="262" y1="150" x2="338" y2="150" stroke="#71717a" stroke-width="2" marker-end="url(#arrowH)"/>
+  <text x="300" y="140" text-anchor="middle" fill="#52525b" font-size="9">task, voice</text>
+
+  <!-- Backend / Orchestrator -->
+  <rect x="340" y="70" width="220" height="160" rx="12" fill="#18181b" stroke="#0e7490" stroke-width="1.2"/>
+  <rect x="340" y="70" width="220" height="32" rx="12" fill="#0e7490" opacity="0.15"/>
+  <text x="450" y="92" text-anchor="middle" fill="#22d3ee" font-size="12" font-weight="700">BACKEND</text>
+  <text x="450" y="110" text-anchor="middle" fill="#52525b" font-size="10">Go, Agentic Orchestrator</text>
+  <text x="450" y="140" text-anchor="middle" fill="#e4e4e7" font-size="10" font-weight="600">7 agents, Event Sink</text>
+  <text x="450" y="157" text-anchor="middle" fill="#71717a" font-size="9">Spec, Style, Code, Narrator</text>
+  <text x="450" y="172" text-anchor="middle" fill="#71717a" font-size="9">Voice, Visual, Story</text>
+  <text x="450" y="195" text-anchor="middle" fill="#71717a" font-size="9">WebSocket stream to client</text>
+
+  <!-- Arrow to Gemini + Cloud -->
+  <line x1="562" y1="150" x2="638" y2="150" stroke="#71717a" stroke-width="2" marker-end="url(#arrowH)"/>
+  <text x="600" y="140" text-anchor="middle" fill="#52525b" font-size="9">calls</text>
+
+  <!-- Gemini + Google Cloud -->
+  <rect x="640" y="70" width="220" height="160" rx="12" fill="#18181b" stroke="#7c3aed" stroke-width="1.2"/>
+  <rect x="640" y="70" width="220" height="32" rx="12" fill="#7c3aed" opacity="0.15"/>
+  <text x="750" y="92" text-anchor="middle" fill="#c4b5fd" font-size="12" font-weight="700">GEMINI + CLOUD</text>
+  <text x="750" y="110" text-anchor="middle" fill="#52525b" font-size="10">Google GenAI, Cloud Run</text>
+  <text x="750" y="140" text-anchor="middle" fill="#e4e4e7" font-size="10" font-weight="600">Gemini 3 Flash, TTS</text>
+  <text x="750" y="157" text-anchor="middle" fill="#71717a" font-size="9">Firestore, S3, OAuth</text>
+  <text x="750" y="195" text-anchor="middle" fill="#71717a" font-size="9">streaming response to backend</text>
+
+  <!-- Return flow label -->
+  <line x1="638" y1="200" x2="338" y2="200" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="6,4" opacity="0.7"/>
+  <text x="488" y="195" text-anchor="middle" fill="#22d3ee" font-size="9">spec, CSS, code, audio, story</text>
+</svg>

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import CodePlayer, { type CodePlayerRef } from "@/components/CodePlayer";
 import GenerationProgress from "@/components/GenerationProgress";
@@ -23,11 +24,27 @@ const NARRATION_LANGUAGES = [
   { value: "chinese", label: "Chinese (Simplified)" },
 ] as const;
 
-const FEATURE_CHIPS = [
-  "Typing animations",
-  "AI voiceover",
-  "Shareable player",
-  "Multi-language",
+const FEATURE_CHIPS: { label: string; description: string }[] = [
+  {
+    label: "Typing animations",
+    description:
+      "Code appears step-by-step as if someone is typing it. Each segment highlights and types in sync with the narration so you can follow along.",
+  },
+  {
+    label: "AI voiceover",
+    description:
+      "Natural-sounding narration is generated for your walkthrough. Choose from multiple languages; the voice explains each step as the code appears.",
+  },
+  {
+    label: "Shareable player",
+    description:
+      "Get a link to your walkthrough you can share. Others can watch the typing animation and listen to the voiceover without signing in.",
+  },
+  {
+    label: "Multi-language",
+    description:
+      "Narration is available in English, German, Spanish, Italian, and Chinese. Pick the language that works best for your audience.",
+  },
 ];
 
 /** Max characters for the "Your code" paste input. */
@@ -48,12 +65,29 @@ export default function Home() {
   const [stage, setStage] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [segments, setSegments] = useState<Segment[]>([]);
-  const [showStory, setShowStory] = useState(false);
   const [storyHtml, setStoryHtml] = useState("");
   const [previewImageBase64, setPreviewImageBase64] = useState("");
-  const [illustrationImageBase64, setIllustrationImageBase64] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
+  const [featureTooltip, setFeatureTooltip] = useState<{ label: string; description: string } | null>(null);
+  const [tooltipClosing, setTooltipClosing] = useState(false);
+  const chipAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const chipsContainerRef = useRef<HTMLDivElement | null>(null);
+  const closeDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeOutDoneRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tooltipPlacement, setTooltipPlacement] = useState<{ top: number; left: number; placement: "top" | "bottom" } | null>(null);
+
+  const TOOLTIP_FADE_OUT_MS = 200;
+
+  const requestTooltipClose = () => {
+    if (closeDelayRef.current) {
+      clearTimeout(closeDelayRef.current);
+      closeDelayRef.current = null;
+    }
+    if (!featureTooltip) return;
+    setTooltipClosing(true);
+  };
   const styleElRef = useRef<HTMLStyleElement | null>(null);
   const streamEndedRef = useRef(false);
   const newSegmentIndexRef = useRef<number | null>(null);
@@ -67,10 +101,6 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => {
-    if (storyHtml.trim()) setShowStory(true);
-  }, [storyHtml]);
-
   const streamCallbacks = useMemo(
     () => ({
       onCss: setCss,
@@ -80,9 +110,8 @@ export default function Home() {
       onNarration: setNarration,
       onRawJson: () => {},
       onStoryHtml: setStoryHtml,
-      onVisuals: (preview: string, illustration: string) => {
+      onVisuals: (preview: string) => {
         setPreviewImageBase64(preview);
-        setIllustrationImageBase64(illustration);
       },
       onError: setError,
       onLoading: setLoading,
@@ -141,6 +170,69 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [sessionId, authConfigured, refetchAuth]);
 
+  // Position tooltip near the anchor chip; keep inside viewport
+  useLayoutEffect(() => {
+    if (!featureTooltip || !chipAnchorRef.current) {
+      setTooltipPlacement(null);
+      return;
+    }
+    const anchor = chipAnchorRef.current.getBoundingClientRect();
+    const maxW = Math.min(320, window.innerWidth - 24);
+    const padding = 8;
+    const spaceAbove = anchor.top;
+    const spaceBelow = window.innerHeight - anchor.bottom;
+    const prefersBottom = spaceBelow >= 100 || spaceBelow >= spaceAbove;
+    const placement: "top" | "bottom" = prefersBottom ? "bottom" : "top";
+    const top =
+      placement === "bottom"
+        ? anchor.bottom + padding
+        : anchor.top - padding; // for "top" we use translateY(-100%) so bottom of tooltip sits here
+    let left = anchor.left + anchor.width / 2 - maxW / 2;
+    left = Math.max(padding, Math.min(window.innerWidth - maxW - padding, left));
+    setTooltipPlacement({ top, left, placement });
+  }, [featureTooltip]);
+
+  // Unmount tooltip after fade-out animation
+  useEffect(() => {
+    if (!tooltipClosing) return;
+    fadeOutDoneRef.current = setTimeout(() => {
+      setFeatureTooltip(null);
+      setTooltipClosing(false);
+      fadeOutDoneRef.current = null;
+    }, TOOLTIP_FADE_OUT_MS);
+    return () => {
+      if (fadeOutDoneRef.current) clearTimeout(fadeOutDoneRef.current);
+    };
+  }, [tooltipClosing]);
+
+  // Close tooltip on click outside (mobile-friendly)
+  useEffect(() => {
+    if (!featureTooltip || tooltipClosing) return;
+    const handlePointer = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        tooltipRef.current?.contains(target) ||
+        chipsContainerRef.current?.contains(target)
+      )
+        return;
+      requestTooltipClose();
+    };
+    document.addEventListener("mousedown", handlePointer, true);
+    document.addEventListener("touchstart", handlePointer, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener("mousedown", handlePointer, true);
+      document.removeEventListener("touchstart", handlePointer, true);
+    };
+  }, [featureTooltip, tooltipClosing]);
+
+  // Close tooltip on scroll (mobile-friendly)
+  useEffect(() => {
+    if (!featureTooltip || tooltipClosing) return;
+    const handleScroll = () => requestTooltipClose();
+    document.addEventListener("scroll", handleScroll, true);
+    return () => document.removeEventListener("scroll", handleScroll, true);
+  }, [featureTooltip, tooltipClosing]);
+
   const quotaExhausted = authConfigured && user && quotaRemaining !== undefined && quotaRemaining <= 0;
 
   const submitTaskStream = () => {
@@ -152,7 +244,6 @@ export default function Home() {
     setDisplayedCode("");
     setStoryHtml("");
     setPreviewImageBase64("");
-    setIllustrationImageBase64("");
     if (inputTab === "code") {
       runStream("", "", narrationLanguage, userCode.trim());
     } else {
@@ -243,8 +334,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Body: sidebar + main ───────────────────────────────────── */}
-      <div className="flex flex-col flex-1 md:flex-row overflow-hidden">
+      {/* ── Body: main is full-width and centered; sidebar is fixed so it doesn't shift content ── */}
+      <div className="flex-1 flex flex-col min-h-0 relative">
         {authConfigured && (
           <JobsSidebar
             open={sidebarOpen}
@@ -254,7 +345,7 @@ export default function Home() {
           />
         )}
 
-        <main className="flex-1 min-w-0 overflow-y-auto relative">
+        <main className="flex-1 w-full min-h-0 overflow-y-auto relative">
           <div className="max-w-4xl mx-auto px-4 py-6 md:px-6 md:py-10">
 
             {/* ── Hero ───────────────────────────────────────────── */}
@@ -282,15 +373,103 @@ export default function Home() {
                 </p>
 
                 {/* Feature chips */}
-                <div className="anim-in-d2 flex flex-wrap gap-2 mb-8">
-                  {FEATURE_CHIPS.map((label) => (
-                    <span
-                      key={label}
-                      className="inline-flex items-center px-3 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/50 text-zinc-400 text-xs"
+                <div
+                  ref={chipsContainerRef}
+                  className="anim-in-d2 flex flex-wrap gap-2 mb-8 relative"
+                >
+                  {FEATURE_CHIPS.map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      ref={featureTooltip?.label === chip.label && !tooltipClosing ? chipAnchorRef : undefined}
+                      onClick={(e) => {
+                        chipAnchorRef.current = e.currentTarget;
+                        if (featureTooltip?.label === chip.label) {
+                          requestTooltipClose();
+                        } else {
+                          if (closeDelayRef.current) {
+                            clearTimeout(closeDelayRef.current);
+                            closeDelayRef.current = null;
+                          }
+                          if (fadeOutDoneRef.current) {
+                            clearTimeout(fadeOutDoneRef.current);
+                            fadeOutDoneRef.current = null;
+                          }
+                          setTooltipClosing(false);
+                          setFeatureTooltip(chip);
+                        }
+                      }}
+                      onMouseEnter={() => {
+                        if (closeDelayRef.current) {
+                          clearTimeout(closeDelayRef.current);
+                          closeDelayRef.current = null;
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        if (!featureTooltip || tooltipClosing || featureTooltip.label !== chip.label) return;
+                        closeDelayRef.current = setTimeout(requestTooltipClose, 120);
+                      }}
+                      className="inline-flex items-center px-3 py-1 rounded-full bg-zinc-800/60 border border-zinc-700/50 text-zinc-400 text-xs hover:bg-zinc-700/60 hover:border-zinc-600/50 hover:text-zinc-300 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:ring-offset-2 focus:ring-offset-zinc-950"
+                      aria-expanded={featureTooltip?.label === chip.label && !tooltipClosing}
+                      aria-describedby={featureTooltip?.label === chip.label && !tooltipClosing ? "feature-tooltip" : undefined}
                     >
-                      {label}
-                    </span>
+                      {chip.label}
+                    </button>
                   ))}
+
+                  {/* Feature tooltip — portaled to body so fixed position is viewport-relative (parent has transform from anim-in-d2) */}
+                  {featureTooltip &&
+                    tooltipPlacement &&
+                    typeof document !== "undefined" &&
+                    createPortal(
+                      <div
+                        id="feature-tooltip"
+                        ref={tooltipRef}
+                        role="tooltip"
+                        aria-live="polite"
+                        className="fixed z-50 w-[min(320px,calc(100vw-24px))] rounded-lg border border-zinc-700/80 bg-zinc-900 shadow-xl p-0 text-left"
+                        style={{
+                          top: tooltipPlacement.top,
+                          left: tooltipPlacement.left,
+                          transform:
+                            tooltipPlacement.placement === "top"
+                              ? "translateY(-100%)"
+                              : undefined,
+                        }}
+                        onMouseEnter={() => {
+                          if (closeDelayRef.current) {
+                            clearTimeout(closeDelayRef.current);
+                            closeDelayRef.current = null;
+                          }
+                        }}
+                        onMouseLeave={requestTooltipClose}
+                      >
+                        <div
+                          className={`relative rounded-lg p-3.5 ${tooltipClosing ? "feature-tooltip-exit" : "feature-tooltip-enter"}`}
+                        >
+                          <div
+                            className="absolute inset-x-0 top-0 h-px rounded-t-lg bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent"
+                            aria-hidden
+                          />
+                          <p className="text-xs font-semibold text-zinc-100 mb-1.5">
+                            {featureTooltip.label}
+                          </p>
+                          <p className="text-zinc-400 text-xs leading-relaxed">
+                            {featureTooltip.description}
+                          </p>
+                          {/* Arrow */}
+                          <div
+                            className={`absolute left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-l-transparent border-r-transparent ${
+                              tooltipPlacement.placement === "bottom"
+                                ? "border-b-[6px] border-b-zinc-900 -top-1.5"
+                                : "border-t-[6px] border-t-zinc-900 -bottom-1.5"
+                            }`}
+                            aria-hidden
+                          />
+                        </div>
+                      </div>,
+                      document.body
+                    )}
                 </div>
 
                 {/* Recent walkthroughs carousel — renders nothing when index is unconfigured */}
@@ -446,52 +625,17 @@ export default function Home() {
                 />
 
                 {sessionId && storyHtml && (
-                  <div className="mt-4 flex flex-col gap-3">
-                    <Link
-                      href={`/story/${sessionId}`}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zinc-800/70 border border-zinc-700/60 text-zinc-200 hover:text-white hover:border-zinc-500 text-sm font-medium transition-colors self-start"
-                    >
-                      View story
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                        <polyline points="15 3 21 3 21 9" />
-                        <line x1="10" y1="14" x2="21" y2="3" />
-                      </svg>
-                    </Link>
-                    {illustrationImageBase64 && (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
-                        src={`data:image/png;base64,${illustrationImageBase64}`}
-                        alt="Article illustration"
-                        className="rounded-xl border border-zinc-800/70 w-full max-w-[640px]"
-                        width={640}
-                        height={480}
-                      />
-                    )}
-                  </div>
-                )}
-
-                {(code || segments.length > 0) && (
-                  <div className="mt-3 border border-zinc-800/70 rounded-xl overflow-hidden bg-zinc-900/50">
-                    <button
-                      type="button"
-                      onClick={() => setShowStory((v) => !v)}
-                      className="w-full flex items-center justify-between px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-colors"
-                    >
-                      <span>Story HTML</span>
-                      <svg
-                        width="15" height="15" viewBox="0 0 24 24" fill="currentColor"
-                        className={`transition-transform duration-200 ${showStory ? "rotate-180" : ""}`}
-                      >
-                        <path d="M7 10l5 5 5-5z" />
-                      </svg>
-                    </button>
-                    {showStory && (
-                      <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-all text-zinc-500 overflow-auto max-h-56 border-t border-zinc-800/70">
-                        {storyHtml || "No story yet. It will appear here after generation completes."}
-                      </pre>
-                    )}
-                  </div>
+                  <Link
+                    href={`/story/${sessionId}`}
+                    className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-white text-sm font-bold btn-shimmer"
+                  >
+                    <span>View full story with images</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      <polyline points="15 3 21 3 21 9" />
+                      <line x1="10" y1="14" x2="21" y2="3" />
+                    </svg>
+                  </Link>
                 )}
               </>
             )}

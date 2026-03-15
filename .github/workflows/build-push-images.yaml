@@ -1,0 +1,196 @@
+# Build API and web Docker images, push to Artifact Registry, and deploy to Cloud Run.
+# Runs only on tag push; the tag name (e.g. v1.0.0) is used as the image tag.
+# Mirrors scripts/deploy-cloudrun-api.sh and deploy-cloudrun-web.sh (see scripts/).
+#
+# Trigger: push a tag (e.g. git tag v1.0.0 && git push --tags), or run manually with input "tag".
+#
+# Repository secrets:
+#   GCP_PROJECT_ID  - GCP project ID (required)
+#   GCP_SA_KEY      - JSON key of a service account with:
+#                     - Artifact Registry Writer (build/push)
+#                     - Cloud Run Admin + Service Account User (deploy)
+#                     - Secret Manager Secret Accessor (if using --set-secrets for API)
+#
+# Optional: use Workload Identity Federation and set
+#   GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT instead of GCP_SA_KEY.
+#
+# Deploy: API and Web are deployed from the built images. API env (including
+# ALLOWED_ORIGINS, AUTH_CALLBACK_URL) and secrets follow scripts/; optional env
+# (S3_BUCKET, FIRESTORE_*, EXTRA_ALLOWED_ORIGINS) via repository variables if set.
+
+name: Build, push, and deploy
+
+on:
+  push:
+    tags: ['*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to build and deploy (e.g. v1.0.0)'
+        required: true
+
+env:
+  REGION: europe-west1
+  REPO: code-commenter
+  API_SERVICE: code-commenter-api
+  WEB_SERVICE: code-commenter-web
+  IMAGE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          # Or use Workload Identity Federation:
+          # workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          # service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Docker meta (API)
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/code-commenter-api
+          tags: |
+            type=raw,value=${{ env.IMAGE_TAG }}
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Docker meta (Web)
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/code-commenter-web
+          tags: |
+            type=raw,value=${{ env.IMAGE_TAG }}
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          file: ./web/Dockerfile
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-push
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Resolve project number and URLs
+        id: urls
+        run: |
+          PROJECT_NUMBER=$(gcloud projects describe ${{ secrets.GCP_PROJECT_ID }} --format='value(projectNumber)')
+          echo "project_number=$PROJECT_NUMBER" >> $GITHUB_OUTPUT
+          WEB_URL="https://${{ env.WEB_SERVICE }}-${PROJECT_NUMBER}.${{ env.REGION }}.run.app"
+          API_URL="https://${{ env.API_SERVICE }}-${PROJECT_NUMBER}.${{ env.REGION }}.run.app"
+          echo "web_url=$WEB_URL" >> $GITHUB_OUTPUT
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+          # Mirror scripts/deploy-cloudrun-web.sh: web URL + optional extra origins (trimmed)
+          ALLOWED_ORIGINS="$WEB_URL"
+          if [ -n "${EXTRA_ALLOWED_ORIGINS:-}" ]; then
+            extra="$(echo "$EXTRA_ALLOWED_ORIGINS" | xargs)"
+            [ -n "$extra" ] && ALLOWED_ORIGINS="$WEB_URL,$extra"
+          fi
+          echo "allowed_origins=$ALLOWED_ORIGINS" >> $GITHUB_OUTPUT
+        env:
+          EXTRA_ALLOWED_ORIGINS: ${{ vars.EXTRA_ALLOWED_ORIGINS }}
+
+      - name: Deploy API to Cloud Run
+        run: |
+          API_IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/code-commenter-api:${{ env.IMAGE_TAG }}"
+          S3_REGION="${{ vars.S3_REGION }}"
+          [ -z "$S3_REGION" ] && S3_REGION="eu-central-1"
+          gcloud run deploy ${{ env.API_SERVICE }} \
+            --image "$API_IMAGE" \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --set-env-vars "ALLOWED_ORIGINS=${{ steps.urls.outputs.allowed_origins }}" \
+            --set-env-vars "AUTH_CALLBACK_URL=${{ steps.urls.outputs.api_url }}/auth/callback" \
+            --set-env-vars "S3_REGION=$S3_REGION" \
+            --set-secrets "GEMINI_API_KEY=code-commenter-gemini-api-key:latest" \
+            --quiet
+
+      - name: Update API optional env and secrets
+        if: vars.S3_BUCKET != '' || vars.S3_ENDPOINT != '' || vars.AWS_REGION != '' || vars.FIRESTORE_PROJECT_ID != '' || vars.DATASTORE_PROJECT_ID != '' || vars.GOOGLE_CLIENT_ID != ''
+        run: |
+          UPDATES=()
+          [ -n "${{ vars.S3_BUCKET }}" ] && UPDATES+=(--update-env-vars "S3_BUCKET=${{ vars.S3_BUCKET }}")
+          [ -n "${{ vars.S3_ENDPOINT }}" ] && UPDATES+=(--update-env-vars "S3_ENDPOINT=${{ vars.S3_ENDPOINT }}")
+          [ -n "${{ vars.AWS_REGION }}" ] && UPDATES+=(--update-env-vars "AWS_REGION=${{ vars.AWS_REGION }}")
+          [ -n "${{ vars.FIRESTORE_PROJECT_ID }}" ] && UPDATES+=(--update-env-vars "FIRESTORE_PROJECT_ID=${{ vars.FIRESTORE_PROJECT_ID }}")
+          [ -n "${{ vars.FIRESTORE_DATABASE_ID }}" ] && UPDATES+=(--update-env-vars "FIRESTORE_DATABASE_ID=${{ vars.FIRESTORE_DATABASE_ID }}")
+          [ -n "${{ vars.DATASTORE_PROJECT_ID }}" ] && UPDATES+=(--update-env-vars "DATASTORE_PROJECT_ID=${{ vars.DATASTORE_PROJECT_ID }}")
+          [ -n "${{ vars.DATASTORE_DATABASE_ID }}" ] && UPDATES+=(--update-env-vars "DATASTORE_DATABASE_ID=${{ vars.DATASTORE_DATABASE_ID }}")
+          [ -n "${{ vars.GOOGLE_CLIENT_ID }}" ] && UPDATES+=(--update-env-vars "GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}" --update-secrets "GOOGLE_CLIENT_SECRET=code-commenter-google-client-secret:latest,SESSION_SECRET=code-commenter-session-secret:latest")
+          if [ ${#UPDATES[@]} -gt 0 ]; then
+            gcloud run services update ${{ env.API_SERVICE }} --region ${{ env.REGION }} "${UPDATES[@]}" --quiet
+          fi
+
+      - name: Deploy Web to Cloud Run
+        run: |
+          WEB_IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/code-commenter-web:${{ env.IMAGE_TAG }}"
+          gcloud run deploy ${{ env.WEB_SERVICE }} \
+            --image "$WEB_IMAGE" \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --port 8080 \
+            --set-env-vars "API_URL=${{ steps.urls.outputs.api_url }}" \
+            --quiet
+
+      - name: Update API ALLOWED_ORIGINS (CORS)
+        run: |
+          # Mirror scripts/deploy-cloudrun-web.sh: ensure API has web URL + extra origins
+          gcloud run services update ${{ env.API_SERVICE }} \
+            --region ${{ env.REGION }} \
+            --update-env-vars "^||^ALLOWED_ORIGINS=${{ steps.urls.outputs.allowed_origins }}" \
+            --quiet
+
+      - name: Summary
+        run: |
+          echo "## Deploy summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **API:** ${{ steps.urls.outputs.api_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Web:** ${{ steps.urls.outputs.web_url }}" >> $GITHUB_STEP_SUMMARY

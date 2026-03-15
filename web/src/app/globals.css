@@ -56,6 +56,44 @@ body {
   }
 }
 
+/* ── Feature tooltip: premium fade (opacity + scale only; position is on wrapper) ── */
+@keyframes tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tooltip-fade-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.feature-tooltip-enter {
+  animation: tooltip-fade-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.feature-tooltip-exit {
+  animation: tooltip-fade-out 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feature-tooltip-enter,
+  .feature-tooltip-exit {
+    animation-duration: 0.01ms;
+  }
+}
+
 /* ── Generate button: gradient shimmer ───────────────────────── */
 .btn-shimmer {
   background: linear-gradient(110deg, #0e7490 0%, #06b6d4 35%, #38bdf8 65%, #0e7490 100%);
@@ -72,10 +110,9 @@ body {
   cursor: not-allowed;
 }
 
-/* ── Sidebar: desktop width via CSS var ───────────────────────── */
+/* ── Sidebar: width from Tailwind (md:w-12 / md:w-[264px]); transition for collapse ── */
 @media (min-width: 768px) {
   .jobs-sidebar {
-    width: var(--sidebar-w, 264px);
     transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 }
