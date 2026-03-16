@@ -4,10 +4,6 @@
 
 Describe a coding task (text) and the agentic pipeline decomposes it, generates styled code, produces a synchronized voiceover in your chosen language, creates visual assets, and publishes a shareable interactive player — all streamed in real time.
 
-<p align="center">
-  <img src="doc/architecture-high-level.svg" alt="High-level architecture: Frontend, Backend, Gemini + Cloud" width="900"/>
-</p>
-
 ## Agentic architecture
 
 The backend runs a **multi-agent orchestration pipeline** where seven specialized agents execute autonomously, each backed by a purpose-selected Gemini model:
@@ -31,6 +27,8 @@ The orchestrator chains these agents through an **event-driven architecture** (`
 - **Multi-model orchestration** — five distinct Gemini models selected per sub-task for optimal performance (text, code, image, audio, timestamp detection)
 - **Human-in-the-loop** — the agent adapts its execution path based on user intent (text vs. voice input, task generation vs. user-code narration mode)
 - **Multimodal I/O** — text in, code + CSS out, audio out (TTS), image out (generated visuals), HTML out (story article)
+- **Google Search grounding** — the Spec Agent and Story Agent use the Gemini Google Search tool so task specs and articles can reference up-to-date documentation and best practices
+- **Safety settings** — all generation requests use `SafetySettings` (Harassment, HateSpeech, SexuallyExplicit, DangerousContent) with `BlockMediumAndAbove` to filter unsafe content
 
 ## Mandatory tech
 
@@ -86,31 +84,11 @@ For **deployment** (Cloud Run staging/production, GitHub Actions, deploy configs
 - **`scripts/`** — Fast staging deploy scripts (Cloud Run from source).
 - **`deploy/`** — Cloud Run configs: env stubs and Secret Manager links (`env.prod.yaml`), list of [secrets to create](deploy/secrets-to-create.md). Secrets YAML in this directory is encrypted with SOPS.
 - **`doc/architecture.md`** — Architecture with Mermaid diagram.
-- **`doc/architecture-high-level.svg`** — High-level architecture (Frontend, Backend, Gemini + Cloud).
-- **`doc/architecture.svg`** — Full architecture diagram (visual).
-- **`doc/architecture-backend.svg`** — Backend (orchestrator + Gemini + Cloud) diagram.
-- **`doc/architecture-frontend.svg`** — Frontend architecture diagram.
 - **`doc/deployment.md`** — Environment variables and deployment (Cloud Run, GitHub Actions).
 - **`doc/testing.md`** — Reviewer guide with sample prompts and checklist.
 
-## Architecture diagram
-
-**Full system:** [doc/architecture.svg](doc/architecture.svg) (Mermaid: [doc/architecture.md](doc/architecture.md))
-
 <p align="center">
-  <img src="doc/architecture.svg" alt="Full multi-agent architecture" width="960"/>
-</p>
-
-**Backend** (orchestrator, Gemini models, Google Cloud):
-
-<p align="center">
-  <img src="doc/architecture-backend.svg" alt="Backend architecture" width="820"/>
-</p>
-
-**Frontend** (Next.js app and data flow):
-
-<p align="center">
-  <img src="doc/architecture-frontend.svg" alt="Frontend architecture" width="380"/>
+  <img src="doc/anee-explainee-arc.png" alt="Anee Explainee architecture" width="900"/>
 </p>
 
 ## API summary

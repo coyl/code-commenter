@@ -47,6 +47,22 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// defaultSafetySettings returns safety settings that block medium-and-above harm in standard categories.
+// Used for all generation requests to filter unsafe content.
+func defaultSafetySettings() []*genai.SafetySetting {
+	return []*genai.SafetySetting{
+		{Category: genai.HarmCategoryHarassment, Threshold: genai.HarmBlockThresholdBlockMediumAndAbove},
+		{Category: genai.HarmCategoryHateSpeech, Threshold: genai.HarmBlockThresholdBlockMediumAndAbove},
+		{Category: genai.HarmCategorySexuallyExplicit, Threshold: genai.HarmBlockThresholdBlockMediumAndAbove},
+		{Category: genai.HarmCategoryDangerousContent, Threshold: genai.HarmBlockThresholdBlockMediumAndAbove},
+	}
+}
+
+// googleSearchTool returns a Tool that enables Google Search grounding for the request.
+func googleSearchTool() []*genai.Tool {
+	return []*genai.Tool{{GoogleSearch: &genai.GoogleSearch{}}}
+}
+
 // narrationLanguageLabel returns a display name for the narration language (for LLM prompts).
 func narrationLanguageLabel(lang string) string {
 	switch strings.ToLower(strings.TrimSpace(lang)) {
@@ -86,9 +102,13 @@ SPEC:
 NARRATION:
 <2-4 sentences for voiceover in %s>`, narrationLabel, task, language, narrationLabel)
 
+	cfg := &genai.GenerateContentConfig{
+		SafetySettings: defaultSafetySettings(),
+		Tools:          googleSearchTool(),
+	}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
+	}, cfg)
 	if err != nil {
 		return "", "", err
 	}
@@ -120,9 +140,10 @@ You MUST define each of the eight .token-* classes with a visibly different colo
 Output only valid CSS, no markdown code fences. Pick a cohesive color scheme (e.g. dark background with cyan/green/amber accents).`, langHint, spec)
 
 	start := time.Now()
+	cfg := &genai.GenerateContentConfig{SafetySettings: defaultSafetySettings()}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
+	}, cfg)
 	if err != nil {
 		log.Error().Err(err).Str("op", "GenerateCSS").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", err
@@ -186,6 +207,7 @@ Rules:
 	cfg := &genai.GenerateContentConfig{
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   segmentsSchema(),
+		SafetySettings:   defaultSafetySettings(),
 	}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
@@ -235,6 +257,7 @@ Rules:
 	cfg := &genai.GenerateContentConfig{
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   segmentsSchema(),
+		SafetySettings:   defaultSafetySettings(),
 	}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
@@ -265,9 +288,10 @@ No code snippets, no markdown. Output only the narration text, nothing else.
 Spec: %s
 Language: %s`, narrationLabel, spec, language)
 	start := time.Now()
+	cfg := &genai.GenerateContentConfig{SafetySettings: defaultSafetySettings()}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
+	}, cfg)
 	if err != nil {
 		log.Error().Err(err).Str("op", "GenerateWrappingNarration").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", err
@@ -290,9 +314,10 @@ Write a closing voiceover (3 to 5 short sentences) in %s. Do all of the followin
 
 No code snippets, no markdown. Output only the narration text, nothing else.`, segmentNarrationsSummary, narrationLabel)
 	start := time.Now()
+	cfg := &genai.GenerateContentConfig{SafetySettings: defaultSafetySettings()}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
+	}, cfg)
 	if err != nil {
 		log.Error().Err(err).Str("op", "GenerateWrappingNarrationForUserCode").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", err
@@ -332,9 +357,13 @@ Rules:
 - Do NOT include the actual source code in the article body; the player shows it.
 - Output only the HTML, no markdown code fences, no explanation.`, title, language, spec, segmentNarrations, narrationLabel)
 
+	cfg := &genai.GenerateContentConfig{
+		SafetySettings: defaultSafetySettings(),
+		Tools:          googleSearchTool(),
+	}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil)
+	}, cfg)
 	if err != nil {
 		return "", err
 	}
@@ -389,6 +418,7 @@ Output only the diagram image.`, title, language, segmentNarrations)
 		ImageConfig: &genai.ImageConfig{
 			AspectRatio: "16:9",
 		},
+		SafetySettings: defaultSafetySettings(),
 	}
 
 	type result struct {
@@ -470,9 +500,10 @@ func (c *Client) GenerateTitle(ctx context.Context, spec, prompt, narrationLang 
 
 Output only the title, nothing else.`, narrationLabel, prompt)
 	start := time.Now()
+	cfg := &genai.GenerateContentConfig{SafetySettings: defaultSafetySettings()}
 	result, err := c.client.Models.GenerateContent(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: promptText}}},
-	}, nil)
+	}, cfg)
 	if err != nil {
 		log.Error().Err(err).Str("op", "GenerateTitle").Dur("dur", time.Since(start)).Msg("llm request")
 		return "", err
@@ -526,10 +557,11 @@ Spec: %s
 
 Output only the code, no markdown code fences or explanation.`, language, spec)
 
+	streamCfg := &genai.GenerateContentConfig{SafetySettings: defaultSafetySettings()}
 	var full strings.Builder
 	for resp, err := range c.client.Models.GenerateContentStream(ctx, c.model, []*genai.Content{
 		{Parts: []*genai.Part{{Text: prompt}}},
-	}, nil) {
+	}, streamCfg) {
 		if err != nil {
 			return full.String(), err
 		}
@@ -561,6 +593,7 @@ func (c *Client) GenerateAudioStream(ctx context.Context, ttsModel, script strin
 	cfg := &genai.GenerateContentConfig{
 		Temperature:        &temp,
 		ResponseModalities: []string{"audio"},
+		SafetySettings:     defaultSafetySettings(),
 		SpeechConfig: &genai.SpeechConfig{
 			VoiceConfig: &genai.VoiceConfig{
 				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{VoiceName: "Puck"},
@@ -688,6 +721,7 @@ Return exactly %d entries.`, len(narrations), len(narrations))
 		},
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   timestampsSchema(len(narrations)),
+		SafetySettings:   defaultSafetySettings(),
 	}
 	result, err := c.client.Models.GenerateContent(ctx, model, []*genai.Content{
 		{Role: "user", Parts: []*genai.Part{
