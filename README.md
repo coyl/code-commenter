@@ -4,6 +4,10 @@
 
 Describe a coding task (text) and the agentic pipeline decomposes it, generates styled code, produces a synchronized voiceover in your chosen language, creates visual assets, and publishes a shareable interactive player — all streamed in real time.
 
+<p align="center">
+  <img src="doc/show.gif" alt="Anee Explainee demo" width="900"/>
+</p>
+
 ## Agentic architecture
 
 The backend runs a **multi-agent orchestration pipeline** where seven specialized agents execute autonomously, each backed by a purpose-selected Gemini model:
